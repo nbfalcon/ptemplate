@@ -66,6 +66,7 @@ user presses \\<ptemplate--snippet-chain-mode-map>
         (switch-to-buffer next)
       (find-file (cdr next))
       (ptemplate--snippet-chain-mode 1)
+      (yas-minor-mode 1)
       (yas-expand-snippet (ptemplate--read-file (car next))))))
 
 (defun ptemplate-snippet-chain-next ()
@@ -103,6 +104,7 @@ This mode is only for keybindings."
 For details, see `ptemplate--snippet-chain'."
   (let ((first (pop snippets)))
     (find-file (cdr first))
+    (yas-minor-mode 1)
     (yas-expand-snippet (ptemplate--read-file (car first)))
     (setq ptemplate--snippet-chain snippets))
   (ptemplate--snippet-chain-mode 1))
@@ -112,20 +114,22 @@ For details, see `ptemplate--snippet-chain'."
   "Check if FILE has a yasnippet extension and nil otherwise."
   (string= (file-name-extension file) "yas"))
 
-(defun ptemplate--autosnippet-p (file)
-  "Check if FILE names a non-interactive snippets.
-Such snippets should be expanded automatically without user
-interaction."
-  (string= (file-name-extension file) "autoyas"))
+(defvar ptemplate-target-directory nil
+  "Target directory of ptemplate expansion.
+You can use this in templates.")
 
 ;;; (ptemplate-expand-template :: String -> String)
 (defun ptemplate-expand-template (dir target)
   "Expand the template in DIR to TARGET."
+  (setq dir (file-name-as-directory dir))
+  (setq target (file-name-as-directory target))
+
   (when (file-directory-p target)
     (user-error "Directory %s already exists" target))
 
   (make-directory target t)
-  (setq target (file-name-as-directory target))
+
+  (setq ptemplate-target-directory target)
   (with-temp-buffer
     ;; this way, all template files will begin with ./, making them easier to
     ;; copy to target.
@@ -134,7 +138,7 @@ interaction."
       ;; make directories
       (cl-loop for file in files do
                (when (file-directory-p file)
-                   (setq file (file-name-as-directory file)))
+                 (setq file (file-name-as-directory file)))
                (make-directory (concat target (file-name-directory file)) t))
       (setq files (cl-delete-if #'file-directory-p files))
 
@@ -147,10 +151,7 @@ interaction."
         (when yasnippets
           (ptemplate--start-snippet-chain yasnippets))
         (dolist (file normal-files)
-          (if (ptemplate--autosnippet-p file)
-              (with-temp-file (concat target (file-name-sans-extension file))
-                (yas-expand-snippet (ptemplate--read-file file)))
-            (copy-file file (concat target file))))))))
+          (copy-file file (concat target file)))))))
 
 ;;; (ptemplate-template-dirs :: [String])
 (defcustom ptemplate-template-dirs '()
@@ -183,14 +184,24 @@ all occurrences, but only the first."
         (when (file-directory-p template-dir)
           (throw 'result template-dir))))))
 
+(defun ptemplate--list-dir (dir)
+  "List DIR, including directories.
+A list of the full paths of each element is returned. The special
+directories \".\" and \"..\" are ignored."
+  (cl-delete-if (lambda (f) (or (string-suffix-p "/." f)
+                                (string-suffix-p "/.." f)))
+                (directory-files dir t)))
+
 (defun ptemplate-list-template-dir (dir)
   "List all templates in directory DIR.
 The result is of the form (TYPE ((NAME . PATH)...))...."
-  (let* ((type-dirs (directory-files dir t))
-         (name-dirs (cl-loop for dir in type-dirs collect (directory-files dir t)))
-         (names (mapcar #'file-name-base name-dirs))
-         (name-dir-pairs (cl-mapcar #'cons names name-dirs))
-         (types (mapcar #'file-name-base type-dirs)))
+  (let* ((type-dirs (ptemplate--list-dir dir))
+         (types (mapcar #'file-name-base type-dirs))
+         (name-dirs (cl-loop for tdir in type-dirs collect
+                             (ptemplate--list-dir tdir)))
+         (name-dir-pairs (cl-loop for name-dir in name-dirs collect
+                                  (cl-loop for dir in name-dir collect
+                                           (cons (file-name-base dir) dir)))))
     (cl-mapcar #'cons types name-dir-pairs)))
 
 (defun ptemplate-list-templates ()

@@ -1,4 +1,4 @@
-;;; ptemplate-helm.el --- ptemplate helm interface -*- lexical-binding: t -*-
+;;; ptemplate-helm.el --- Ptemplate helm interface -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2020  Nikita Bloshchanevich
 
