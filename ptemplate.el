@@ -29,8 +29,8 @@
 ;; number of yasnippets or normal files.
 
 ;; Security note: yasnippets allow arbitrary code execution, as do .ptemplate.el
-;; files. DO NOT RUN UNTRUSTED PTEMPLATES. Ptemplate DOES NOT make ANY special
-;; effort to protect against malicious templates.
+;; files. DO NOT EXPAND UNTRUSTED PTEMPLATES. Ptemplate DOES NOT make ANY
+;; special effort to protect against malicious templates.
 
 ;;; Code:
 
@@ -151,7 +151,9 @@ You can use this in templates.")
         (when yasnippets
           (ptemplate--start-snippet-chain yasnippets))
         (dolist (file normal-files)
-          (copy-file file (concat target file)))))))
+          (if (string-suffix-p ".keep" file)
+              (copy-file file (concat target (file-name-sans-extension file)))
+            (copy-file file (concat target file))))))))
 
 ;;; (ptemplate-template-dirs :: [String])
 (defcustom ptemplate-template-dirs '()
