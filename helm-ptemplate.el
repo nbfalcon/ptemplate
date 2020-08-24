@@ -1,4 +1,4 @@
-;;; ptemplate-helm.el --- Ptemplate helm interface -*- lexical-binding: t -*-
+;;; helm-ptemplate.el --- Ptemplate helm interface -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2020  Nikita Bloshchanevich
 
@@ -28,7 +28,7 @@
 (require 'ptemplate)
 (require 'helm)
 
-(defun ptemplate-helm-make-helm-sources ()
+(defun helm-ptemplate-make-helm-sources ()
   "Make a list of helm sources from the user's templates.
 Gather a list of the user's templates using
 `ptemplate-list-templates' and convert each TYPE . TEMPLATES pair
@@ -43,8 +43,8 @@ the user (see `ptemplate-exec-template')."
 (defun helm-ptemplate-new-project ()
   "Create a new project using a template that is prompted."
   (interactive)
-  (helm :sources (ptemplate-helm-make-helm-sources)
+  (helm :sources (helm-ptemplate-make-helm-sources)
         :buffer "*helm ptemplate*"))
 
-(provide 'ptemplate-helm)
-;;; ptemplate-helm.el ends here
+(provide 'helm-ptemplate)
+;;; helm-ptemplate.el ends here
