@@ -81,10 +81,12 @@ empty, do nothing."
 
 (defun ptemplate-snippet-chain-later ()
   "Save the current buffer to be expanded later.
-Use this if you are not sure yet what expansions to use in
-templates and want to decide later, after looking at other
-templates."
+Use this if you are not sure yet what expansions to use in the
+current snipept and want to decide later, after looking at
+others."
   (interactive)
+  (unless ptemplate--snippet-chain
+    (user-error "No more snippets to expand"))
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
@@ -108,52 +110,121 @@ For details, see `ptemplate--snippet-chain'."
     (yas-expand-snippet (ptemplate--read-file (car first)))
     (setq ptemplate--snippet-chain snippets))
   (ptemplate--snippet-chain-mode 1))
+
+(defvar ptemplate-target-directory nil
+  "Target directory of ptemplate expansion.
+You can use this in templates. This variable always ends in the
+platform-specific directory separator, so you can use this with
+concat to build file paths.")
 
+(defvar ptemplate-source-directory nil
+  "Source directory of ptemplate expansion.
+Akin to `ptemplate-source-directory'.")
+
+(defmacro ptemplate! (&rest args)
+  "Define a smart ptemplate with elisp.
+For use in .ptemplate.el files. ARGS is a plist-like list with
+any number of sections, specfied as :<section name> FORM... (like
+in `use-package'). Sections can appear multiple times: you could,
+for example, have multiple :init sections, the FORMs of which
+would get evaluated in sequence. Supported keyword are:
+
+:init FORMs to run before expansion.
+
+:before-snippets FORMs to run before expanding yasnippets. Use
+                 this if you need to ask the user questions that
+                 could influence yasnippet expansion, but that
+                 shouldn't block file copying.
+
+:after FORMs to run after all files have been copied. The
+             ptemplate's snippets need not have been expanded
+             already.
+
+Note that because .ptemplate.el files execute arbitrary code, you
+could write them entirely without using this macro (e.g. by
+modifying hooks directly, ...). However, you should still use
+`ptemplate!', as this makes templates more future-proof and
+readable."
+  (let ((cur-keyword)
+        (result)
+        (before-yas-eval)
+        (after-expand-eval))
+    (dolist (arg args)
+      (if (keywordp arg)
+          (setq cur-keyword arg)
+        (pcase cur-keyword
+          (:init (push arg result))
+          (:before-snippets (push arg before-yas-eval))
+          (:after (push arg after-expand-eval)))))
+    (macroexp-progn
+     (nconc (nreverse result)
+            (when before-yas-eval
+              `((setq ptemplate--before-yas-eval
+                      ',(macroexp-progn (nreverse before-yas-eval)))))
+            (when after-expand-eval
+              `((setq ptemplate--after-expand-eval
+                      ',(macroexp-progn (nreverse after-expand-eval)))))))))
+
 ;;; (ptemplate--yasnippet-p :: String -> Bool)
 (defun ptemplate--yasnippet-p (file)
   "Check if FILE has a yasnippet extension and nil otherwise."
   (string= (file-name-extension file) "yas"))
 
-(defvar ptemplate-target-directory nil
-  "Target directory of ptemplate expansion.
-You can use this in templates.")
+(defvar ptemplate--before-yas-eval nil
+  "Expression `eval'ed before expanding yasnippets.")
+
+(defvar ptemplate--after-expand-eval nil
+  "Expression `eval'ed after all files have been copied.
+The user probably won't have filled in all snippets before
+this is expanded.")
 
 ;;; (ptemplate-expand-template :: String -> String)
 (defun ptemplate-expand-template (dir target)
   "Expand the template in DIR to TARGET."
-  (setq dir (file-name-as-directory dir))
-  (setq target (file-name-as-directory target))
-
   (when (file-directory-p target)
     (user-error "Directory %s already exists" target))
-
   (make-directory target t)
 
-  (setq ptemplate-target-directory target)
-  (with-temp-buffer
-    ;; this way, all template files will begin with ./, making them easier to
-    ;; copy to target.
-    (cd dir)
-    (let ((files (directory-files-recursively "." "" t)))
-      ;; make directories
-      (cl-loop for file in files do
-               (when (file-directory-p file)
-                 (setq file (file-name-as-directory file)))
-               (make-directory (concat target (file-name-directory file)) t))
-      (setq files (cl-delete-if #'file-directory-p files))
+  (setq target (file-name-as-directory target))
+  (setq dir (file-name-as-directory dir))
 
-      (let ((yasnippets
-             (cl-loop for file in files if (ptemplate--yasnippet-p file)
-                      collect (cons (concat dir file)
-                                    (concat target
-                                            (file-name-sans-extension file)))))
-            (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
-        (when yasnippets
-          (ptemplate--start-snippet-chain yasnippets))
-        (dolist (file normal-files)
-          (if (string-suffix-p ".keep" file)
-              (copy-file file (concat target (file-name-sans-extension file)))
-            (copy-file file (concat target file))))))))
+  (setq ptemplate-target-directory target)
+  (setq ptemplate-source-directory dir)
+  ;; arbitrary code execution: don't expand untrusted templates
+  (let ((dotptemplate (concat dir ".ptemplate.el"))
+        (ptemplate--before-yas-eval)
+        (ptemplate--after-expand-eval))
+    (when (file-exists-p dotptemplate)
+      (load-file dotptemplate))
+
+    (with-temp-buffer
+      ;; this way, all template files will begin with ./, making them easier to
+      ;; copy to target (just concat target file).
+      (cd dir)
+      (let ((files (directory-files-recursively "." "" t)))
+        ;; make directories
+        (cl-loop for file in files do
+                 (unless (file-directory-p file)
+                   (setq file (file-name-directory file)))
+                 (make-directory (concat target file) t))
+        (setq files (cl-delete-if #'file-directory-p files))
+        (setq files (cl-delete "./.ptemplate.el" files :test #'string=))
+
+        (let ((yasnippets
+               (cl-loop
+                for file in files if (ptemplate--yasnippet-p file) collect
+                (cons (concat dir file)
+                      (concat target (file-name-sans-extension file)))))
+              (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
+          (eval ptemplate--before-yas-eval)
+          (when yasnippets
+            (ptemplate--start-snippet-chain yasnippets))
+
+          (dolist (file normal-files)
+            (if (string-suffix-p ".keep" file)
+                (copy-file file (concat target (file-name-sans-extension file)))
+              (copy-file file (concat target file))))))
+      (eval ptemplate--after-expand-eval))))
 
 ;;; (ptemplate-template-dirs :: [String])
 (defcustom ptemplate-template-dirs '()
