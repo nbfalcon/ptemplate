@@ -168,7 +168,7 @@ readable."
 ;;; (ptemplate--yasnippet-p :: String -> Bool)
 (defun ptemplate--yasnippet-p (file)
   "Check if FILE has a yasnippet extension and nil otherwise."
-  (string= (file-name-extension file) "yas"))
+  (string-suffix-p ".yas" file))
 
 (defvar ptemplate--before-yas-eval nil
   "Expression `eval'ed before expanding yasnippets.")
@@ -185,51 +185,59 @@ this is expanded.")
     (user-error "Directory %s already exists" target))
   (make-directory target t)
 
-  (setq target (file-name-as-directory target))
-  (setq dir (file-name-as-directory dir))
+  (setq target (expand-file-name (file-name-as-directory target)))
+  (setq dir (expand-file-name (file-name-as-directory dir)))
 
   (setq ptemplate-target-directory target)
   (setq ptemplate-source-directory dir)
-  ;; arbitrary code execution: don't expand untrusted templates
+
   (let ((dotptemplate (concat dir ".ptemplate.el"))
         (ptemplate--before-yas-eval)
         (ptemplate--after-expand-eval))
     (when (file-exists-p dotptemplate)
+      ;; NOTE: arbitrary code execution
       (load-file dotptemplate))
 
-    (with-temp-buffer
-      ;; this way, all template files will begin with ./, making them easier to
-      ;; copy to target (just concat target file).
-      (cd dir)
-      (let ((files (directory-files-recursively "." "" t)))
-        ;; make directories
-        (cl-loop for file in files do
-                 (unless (file-directory-p file)
-                   (setq file (file-name-directory file)))
-                 (make-directory (concat target file) t))
-        (setq files (cl-delete-if #'file-directory-p files))
-        (setq files (cl-delete "./.ptemplate.el" files :test #'string=))
+    ;; This way, all template files will begin with ./, making them easier to
+    ;; copy to target (just concat target file).
 
-        (let ((yasnippets
-               (cl-loop
-                for file in files if (ptemplate--yasnippet-p file) collect
-                (cons (concat dir file)
-                      (concat target (file-name-sans-extension file)))))
-              (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
-          (eval ptemplate--before-yas-eval)
-          (when yasnippets
-            (ptemplate--start-snippet-chain yasnippets))
+    ;; We can't merge the two lets because the dotptemplate file must be eval'd
+    ;; in the context of the calling buffer, without default-directory being
+    ;; modified.
+    (let* ((default-directory dir)
+           (files (directory-files-recursively "." "" t)))
+      ;; make directories
+      (cl-loop for file in files do
+               (unless (file-directory-p file)
+                 (setq file (file-name-directory file)))
+               (make-directory (concat target file) t))
 
-          (dolist (file normal-files)
-            (if (string-suffix-p ".keep" file)
-                (copy-file file (concat target (file-name-sans-extension file)))
-              (copy-file file (concat target file))))))
-      (eval ptemplate--after-expand-eval))))
+      ;; directories were already made
+      (setq files (cl-delete-if #'file-directory-p files))
+      ;; don't copy the dotptemplate file
+      (setq files (cl-delete "./.ptemplate.el" files :test #'string=))
+
+      (let ((yasnippets
+             (cl-loop
+              for file in files if (ptemplate--yasnippet-p file) collect
+              (cons (concat dir file)
+                    (concat target (file-name-sans-extension file)))))
+            (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
+        (eval ptemplate--before-yas-eval)
+        (when yasnippets
+          (ptemplate--start-snippet-chain yasnippets))
+
+        (dolist (file normal-files)
+          (cond ((string-suffix-p ".keep" file)
+                 (copy-file
+                  file (concat target (file-name-sans-extension file))))
+                (t (copy-file file (concat target file)))))))
+    (eval ptemplate--after-expand-eval)))
 
 ;;; (ptemplate-template-dirs :: [String])
 (defcustom ptemplate-template-dirs '()
   "List of directories containing templates.
-Analagous to `yas-snippet-dirs'."
+Analagous to the variable `yas-snippet-dirs'."
   :group 'ptemplate
   :type '(repeat string))
 
@@ -302,6 +310,30 @@ directory."
                                #'string=))
          (target (read-file-name "Create project: " workspace workspace)))
     (ptemplate-expand-template template target)))
+
+(defun ptemplate--list-templates-helm ()
+  "Make a list of helm sources from the user's templates.
+Gather a list of the user's templates using
+`ptemplate-list-templates' and convert each TYPE . TEMPLATES pair
+into a helm source with TYPE as its header. Each helm source's
+action is to create a new project in a directory prompted from
+the user (see `ptemplate-exec-template').
+
+Helm (in particular, helm-source.el) must already be loaded when
+this function is called."
+  (declare-function helm-make-source "helm" (name class &rest args))
+  (cl-loop for entry in (ptemplate-list-templates) collect
+           (helm-make-source (car entry) 'helm-source-sync
+             :candidates (cdr entry) :action #'ptemplate-exec-template)))
+
+;;;###autoload
+(defun helm-ptemplate-new-project ()
+  "Create a new project, prompting for a template using `helm'."
+  (interactive)
+  (require 'helm)
+  (declare-function helm "helm")
+  (helm :sources (ptemplate--list-templates-helm)
+        :buffer "*helm ptemplate*"))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
