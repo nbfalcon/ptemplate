@@ -34,7 +34,6 @@
 
 ;;; Code:
 
-(require 'yasnippet)
 (require 'cl-lib)
 
 ;;; (ptemplate--read-file :: String -> String)
@@ -59,8 +58,21 @@ chain is displayed. Buffers are appended to this list when the
 user presses \\<ptemplate--snippet-chain-mode-map>
 \\[ptemplate-snippet-chain-later].")
 
+(define-minor-mode ptemplate--snippet-chain-mode
+  "Minor mode for template directory snippets.
+This mode is only for keybindings."
+  :init-value nil
+  :lighter nil
+  :keymap (let ((map (make-sparse-keymap)))
+            (define-key map (kbd "C-c C-c") #'ptemplate-snippet-chain-next)
+            (define-key map (kbd "C-c C-l") #'ptemplate-snippet-chain-later)
+            map))
+
 (defun ptemplate--snippet-chain-continue ()
   "Make the next snippt/buffer in the snippet chain current."
+  (require 'yasnippet)
+  (declare-function yas-minor-mode "yasnippet" (&optional arg))
+  (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
   (when-let ((next (pop ptemplate--snippet-chain)))
     (if (bufferp next)
         (switch-to-buffer next)
@@ -90,26 +102,12 @@ others."
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
-(define-minor-mode ptemplate--snippet-chain-mode
-  "Minor mode for template directory snippets.
-This mode is only for keybindings."
-  :init-value nil
-  :lighter nil
-  :keymap (let ((map (make-sparse-keymap)))
-            (define-key map (kbd "C-c C-c") #'ptemplate-snippet-chain-next)
-            (define-key map (kbd "C-c C-l") #'ptemplate-snippet-chain-later)
-            map))
-
-;;; (ptemplate--start-snippet-chain :: [Cons String String | Buffer])
-(defun ptemplate--start-snippet-chain (snippets)
+;;; (ptemplate--snippet-chain-start :: [Cons String String | Buffer])
+(defun ptemplate--snippet-chain-start (snippets)
   "Start a snippet chain with SNIPPETS.
 For details, see `ptemplate--snippet-chain'."
-  (let ((first (pop snippets)))
-    (find-file (cdr first))
-    (yas-minor-mode 1)
-    (yas-expand-snippet (ptemplate--read-file (car first)))
-    (setq ptemplate--snippet-chain snippets))
-  (ptemplate--snippet-chain-mode 1))
+  (setq ptemplate--snippet-chain snippets)
+  (ptemplate--snippet-chain-continue))
 
 (defvar ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
@@ -225,7 +223,7 @@ this is expanded.")
             (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
         (eval ptemplate--before-yas-eval)
         (when yasnippets
-          (ptemplate--start-snippet-chain yasnippets))
+          (ptemplate--snippet-chain-start yasnippets))
 
         (dolist (file normal-files)
           (cond ((string-suffix-p ".keep" file)
