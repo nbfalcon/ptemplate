@@ -330,8 +330,7 @@ this function is called."
   (interactive)
   (require 'helm)
   (declare-function helm "helm")
-  (helm :sources (ptemplate--list-templates-helm)
-        :buffer "*helm ptemplate*"))
+  (helm :sources (ptemplate--list-templates-helm) :buffer "*helm ptemplate*"))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
