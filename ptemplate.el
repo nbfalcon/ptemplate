@@ -52,13 +52,13 @@ snippet chain: a list of snippets and their target files or
 buffers. During expansion of a template directory, first all
 snippets are gathered into a list, the first snippet of which is
 then shown to the user. If the user presses
-\\<ptemplate--snippet-chain-mode-map>
+\\<ptemplate-snippet-chain-mode-map>
 \\[ptemplate-snippet-chain-next], the next item in the snippet
 chain is displayed. Buffers are appended to this list when the
-user presses \\<ptemplate--snippet-chain-mode-map>
+user presses \\<ptemplate-snippet-chain-mode-map>
 \\[ptemplate-snippet-chain-later].")
 
-(define-minor-mode ptemplate--snippet-chain-mode
+(define-minor-mode ptemplate-snippet-chain-mode
   "Minor mode for template directory snippets.
 This mode is only for keybindings."
   :init-value nil
@@ -77,7 +77,7 @@ This mode is only for keybindings."
     (if (bufferp next)
         (switch-to-buffer next)
       (find-file (cdr next))
-      (ptemplate--snippet-chain-mode 1)
+      (ptemplate-snippet-chain-mode 1)
       (yas-minor-mode 1)
       (yas-expand-snippet (ptemplate--read-file (car next))))))
 
