@@ -84,7 +84,8 @@ sections (sources) instead:
 Maps template types to workspaces. When a new project is created, the type is
 looked up in this alist and the directory mapped is suggested as the default
 target, in which another directory may be specified for expansion. If the type
-is not associated, use `ptemplate-default-workspace`.
+is not associated, use `ptemplate-default-workspace`, or the current buffer's
+`default-directory` if even that is nil.
 
 ## ptemplate-default-workspace
 See above.

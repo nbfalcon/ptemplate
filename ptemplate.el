@@ -333,7 +333,9 @@ this is expanded.")
 If called interactively, SOURCE is prompted using
 `ptemplate-template-prompt-function'. TARGET is prompted using
 `read-file-name', with the initial directory looked up in
-`ptemplate-workspace-alist' using SOURCE's type."
+`ptemplate-workspace-alist' using SOURCE's type, defaulting to
+`ptemplate-default-workspace'. If even that is nil, use
+`default-directory'."
   (interactive (let ((template (funcall ptemplate-template-prompt-function)))
                  (list template (ptemplate--prompt-target template))))
   (when (file-directory-p target)
