@@ -7,9 +7,10 @@ Such templates ("ptemplates") can even be made intelligent using Emacs Lisp.
 
 # Usage
 ## Creating new projects
-For helm users, run `M-x helm-ptemplate-new-project`. It will then prompt you to
+For helm users, run `ptemplate-expand-template`. It will then prompt you to
 select a template followed by a project directory. The templates are categorized
-in types (corresponding to helm sections or sources).
+in types, which are either mapped to helm sections or to suffixes appended to
+template names (see the "Configuration" section below).
 
 # Writing templates
 All templates are categorized into types, which are associated with workspace
@@ -65,6 +66,33 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :after FORMs to run after all files have been copied
 
 For details, see `M-x describe-function ptemplate!`.
+
+# Configuration
+## ptemplate-template-prompt-function
+This variable specifies which function to use for prompting templates. It can be
+a custom function, or one of the builtin ones (see its docstring for details).
+By default it prompts templates using completing-read, and their types appended
+in parentheses. There is also a builtin function available to use separate helm
+sections (sources) instead:
+
+```emacs-lisp
+(setq ptemplate-prompt-template-completing-read
+      #'ptemplate-prompt-template-helm)
+```
+
+## ptemplate-workspace-alist
+Maps template types to workspaces. When a new project is created, the type is
+looked up in this alist and the directory mapped is suggested as the default
+target, in which another directory may be specified for expansion. If the type
+is not associated, use `ptemplate-default-workspace`.
+
+## ptemplate-default-workspace
+See above.
+
+## ptemplate-template-dirs
+List of directories in which templates are looked up. Each directory specified
+shall consist of a number of subdirectories (corresponding to types) each of
+which have separate subdirectories for templates (template names).
 
 # Installation
 This package is not yet on `MELPA`. However, you can install it using any

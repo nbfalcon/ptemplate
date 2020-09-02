@@ -36,6 +36,156 @@
 
 (require 'cl-lib)
 
+;;; (ptemplate-template-dirs :: [String])
+(defcustom ptemplate-template-dirs '()
+  "List of directories containing templates.
+Analagous to the variable `yas-snippet-dirs'."
+  :group 'ptemplate
+  :type '(repeat string))
+
+;;; (ptemplate-find-template :: String -> [String])
+(defun ptemplate-find-templates (template)
+  "Find TEMPLATE in `ptemplate-template-dirs'.
+Template shall be a path of the form \"category/type\". Returns a
+list of full paths to the template directory specified by
+TEMPLATE. Returns the empty list if TEMPLATE cannot be found."
+  (let ((template (file-name-as-directory template))
+        (result))
+    (dolist (dir ptemplate-template-dirs)
+      (let ((template-dir (concat (file-name-as-directory dir) template)))
+        (when (file-directory-p template-dir)
+          (push template-dir result))))
+    (nreverse result)))
+
+(defun ptemplate-find-template (template)
+  "Find TEMPLATE in `ptemplate-template-dirs'.
+Unlike `ptemplate-find-templates', this function does not return
+all occurrences, but only the first."
+  (catch 'result
+    (dolist (dir ptemplate-template-dirs)
+      (let ((template-dir (concat (file-name-as-directory dir) template)))
+        (when (file-directory-p template-dir)
+          (throw 'result template-dir))))))
+
+(defun ptemplate--list-dir (dir)
+  "List DIR, including directories.
+A list of the full paths of each element is returned. The special
+directories \".\" and \"..\" are ignored."
+  (cl-delete-if (lambda (f) (or (string-suffix-p "/." f)
+                                (string-suffix-p "/.." f)))
+                (directory-files dir t)))
+
+(defun ptemplate-list-template-dir (dir)
+  "List all templates in directory DIR.
+The result is of the form (TYPE ((NAME . PATH)...))...."
+  (let* ((type-dirs (ptemplate--list-dir dir))
+         (types (mapcar #'file-name-base type-dirs))
+         (name-dirs (cl-loop for tdir in type-dirs collect
+                             (ptemplate--list-dir tdir)))
+         (name-dir-pairs (cl-loop for name-dir in name-dirs collect
+                                  (cl-loop for dir in name-dir collect
+                                           (cons (file-name-base dir) dir)))))
+    (cl-mapcar #'cons types name-dir-pairs)))
+
+(defun ptemplate-list-templates ()
+  "List all templates in `ptemplate-template-dirs'.
+The result is an alist ((TYPE (NAME . PATH)...)...)."
+  (mapcan #'ptemplate-list-template-dir ptemplate-template-dirs))
+
+(defun ptemplate--list-templates-helm ()
+  "Make a list of helm sources from the user's templates.
+Gather a list of the user's templates using
+`ptemplate-list-templates' and convert each TYPE . TEMPLATES pair
+into a helm source with TYPE as its header. Each helm source's
+action is to create a new project in a directory prompted from
+the user (see `ptemplate-exec-template').
+
+Helm (in particular, helm-source.el) must already be loaded when
+this function is called."
+  (declare-function helm-make-source "helm" (name class &rest args))
+  (cl-loop for entry in (ptemplate-list-templates) collect
+           (helm-make-source (car entry) 'helm-source-sync
+             :candidates (cdr entry))))
+
+(defun ptemplate-prompt-template-helm ()
+  "Prompt for a template using `helm'.
+The prompt is a `helm' prompt where all templates are categorized
+under their types (as `helm' sources). The return value is the
+path to the template, as a string."
+  (declare-function helm "helm")
+  (require 'helm)
+  (helm :sources (ptemplate--list-templates-helm) :buffer "*helm ptemplate*"))
+
+(defface ptemplate-type-face '((t :inherit font-lock-function-name-face))
+  "Face used to show template types in for the :completing-read backend.
+When :completing-read is used as backend in
+`ptemplate-template-prompt-function', all entries have a (TYPE)
+STRING appended to it. That TYPE is propertized with this face."
+  :group 'ptemplate-faces)
+
+(defun ptemplate--list-templates-completing-read ()
+  "Make a `completing-read' collection."
+  (cl-loop for heading in (ptemplate-list-templates) nconc
+           (let ((category (propertize (format "(%s)" (car heading))
+                                       'face 'ptemplate-type-face)))
+             (cl-loop for template in (cdr heading) collect
+                      (cons (concat (car template) " " category)
+                            (cdr template))))))
+
+(defvar ptemplate--completing-read-history nil
+  "History variable for `completing-read'-based template prompts.
+If :completing-read is set as `ptemplate-template-prompt-function',
+pass this variable as history argument to `completing-read'.")
+
+(defun ptemplate-prompt-template-completing-read ()
+  "Prompt for a template using `completing-read'.
+The prompt is a list of \"NAME (TYPE)\". The return value is the
+path to the template, as a string."
+  (let ((ptemplates (ptemplate--list-templates-completing-read)))
+    (alist-get (completing-read "Select template: " ptemplates
+                                nil t nil 'ptemplate--completing-read-history)
+               ptemplates nil nil #'string=)))
+
+(defcustom ptemplate-template-prompt-function
+  #'ptemplate-prompt-template-completing-read
+  "Prompting method to use to read a template from the user.
+The function shall take no arguments and return the path to the
+template as a string."
+  :group 'ptemplate
+  :type '(radio
+          (const :tag "completing-read (ivy, helm, ...)"
+                 #'ptemplate-prompt-template-completing-read)
+          (const :tag "helm" #'ptemplate-prompt-template-helm)
+          (function :tag "Custom function")))
+
+(defcustom ptemplate-workspace-alist '()
+  "Alist mapping between template types and workspace folders."
+  :group 'ptemplate
+  :type '(alist :key-type (string :tag "Type")
+                :value-type (string :tag "Workspace")))
+
+(defcustom ptemplate-default-workspace nil
+  "Default workspace for `ptemplate-workspace-alist'.
+If looking up a template's type in `ptemplate-workspace-alist'
+fails, because there is no corresponding entry, use this as a
+workspace instead."
+  :group 'ptemplate
+  :type 'string)
+
+(defun ptemplate--prompt-target (template)
+  "Prompt the user to supply a project directory for TEMPLATE.
+The initial directory is looked up based on
+`ptemplate-workspace-alist'. TEMPLATE's type is deduced from its
+path, which means that it should have been obtained using
+`ptemplate-list-templates', or at least be in a template
+directory."
+  (let* ((base (directory-file-name template))
+         (type (file-name-nondirectory (directory-file-name
+                                        (file-name-directory base))))
+         (workspace (alist-get type ptemplate-workspace-alist
+                               ptemplate-default-workspace nil #'string=)))
+    (read-file-name "Create project: " workspace workspace)))
+
 ;;; (ptemplate--read-file :: String -> String)
 (defun ptemplate--read-file (file)
   "Read FILE and return its contents a string."
@@ -177,19 +327,26 @@ The user probably won't have filled in all snippets before
 this is expanded.")
 
 ;;; (ptemplate-expand-template :: String -> String)
-(defun ptemplate-expand-template (dir target)
-  "Expand the template in DIR to TARGET."
+;;;###autoload
+(defun ptemplate-expand-template (source target)
+  "Expand the template in SOURCE to TARGET.
+If called interactively, SOURCE is prompted using
+`ptemplate-template-prompt-function'. TARGET is prompted using
+`read-file-name', with the initial directory looked up in
+`ptemplate-workspace-alist' using SOURCE's type."
+  (interactive (let ((template (funcall ptemplate-template-prompt-function)))
+                 (list template (ptemplate--prompt-target template))))
   (when (file-directory-p target)
     (user-error "Directory %s already exists" target))
   (make-directory target t)
 
   (setq target (expand-file-name (file-name-as-directory target)))
-  (setq dir (expand-file-name (file-name-as-directory dir)))
+  (setq source (expand-file-name (file-name-as-directory source)))
 
   (setq ptemplate-target-directory target)
-  (setq ptemplate-source-directory dir)
+  (setq ptemplate-source-directory source)
 
-  (let ((dotptemplate (concat dir ".ptemplate.el"))
+  (let ((dotptemplate (concat source ".ptemplate.el"))
         (ptemplate--before-yas-eval)
         (ptemplate--after-expand-eval))
     (when (file-exists-p dotptemplate)
@@ -202,7 +359,7 @@ this is expanded.")
     ;; We can't merge the two lets because the dotptemplate file must be eval'd
     ;; in the context of the calling buffer, without default-directory being
     ;; modified.
-    (let* ((default-directory dir)
+    (let* ((default-directory source)
            (files (directory-files-recursively "." "" t)))
       ;; make directories
       (cl-loop for file in files do
@@ -218,7 +375,7 @@ this is expanded.")
       (let ((yasnippets
              (cl-loop
               for file in files if (ptemplate--yasnippet-p file) collect
-              (cons (concat dir file)
+              (cons (concat source file)
                     (concat target (file-name-sans-extension file)))))
             (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
         (eval ptemplate--before-yas-eval)
@@ -231,106 +388,6 @@ this is expanded.")
                   file (concat target (file-name-sans-extension file))))
                 (t (copy-file file (concat target file)))))))
     (eval ptemplate--after-expand-eval)))
-
-;;; (ptemplate-template-dirs :: [String])
-(defcustom ptemplate-template-dirs '()
-  "List of directories containing templates.
-Analagous to the variable `yas-snippet-dirs'."
-  :group 'ptemplate
-  :type '(repeat string))
-
-;;; (ptemplate-find-template :: String -> [String])
-(defun ptemplate-find-templates (template)
-  "Find TEMPLATE in `ptemplate-template-dirs'.
-Template shall be a path of the form \"category/type\". Returns a
-list of full paths to the template directory specified by
-TEMPLATE. Returns the empty list if TEMPLATE cannot be found."
-  (let ((template (file-name-as-directory template))
-        (result))
-    (dolist (dir ptemplate-template-dirs)
-      (let ((template-dir (concat (file-name-as-directory dir) template)))
-        (when (file-directory-p template-dir)
-          (push template-dir result))))
-    (nreverse result)))
-
-(defun ptemplate-find-template (template)
-  "Find TEMPLATE in `ptemplate-template-dirs'.
-Unlike `ptemplate-find-templates', this function does not return
-all occurrences, but only the first."
-  (catch 'result
-    (dolist (dir ptemplate-template-dirs)
-      (let ((template-dir (concat (file-name-as-directory dir) template)))
-        (when (file-directory-p template-dir)
-          (throw 'result template-dir))))))
-
-(defun ptemplate--list-dir (dir)
-  "List DIR, including directories.
-A list of the full paths of each element is returned. The special
-directories \".\" and \"..\" are ignored."
-  (cl-delete-if (lambda (f) (or (string-suffix-p "/." f)
-                                (string-suffix-p "/.." f)))
-                (directory-files dir t)))
-
-(defun ptemplate-list-template-dir (dir)
-  "List all templates in directory DIR.
-The result is of the form (TYPE ((NAME . PATH)...))...."
-  (let* ((type-dirs (ptemplate--list-dir dir))
-         (types (mapcar #'file-name-base type-dirs))
-         (name-dirs (cl-loop for tdir in type-dirs collect
-                             (ptemplate--list-dir tdir)))
-         (name-dir-pairs (cl-loop for name-dir in name-dirs collect
-                                  (cl-loop for dir in name-dir collect
-                                           (cons (file-name-base dir) dir)))))
-    (cl-mapcar #'cons types name-dir-pairs)))
-
-(defun ptemplate-list-templates ()
-  "List all templates that user has stored.
-The result is an alist ((TYPE (NAME . PATH)...)...)."
-  (mapcan #'ptemplate-list-template-dir ptemplate-template-dirs))
-
-(defcustom ptemplate-workspace-alist '()
-  "Alist mapping between template types and workspace folders."
-  :group 'ptemplate
-  :type '(alist :key-type (string :tag "Type")
-                :value-type (string :tag "Workspace")))
-
-(defun ptemplate-exec-template (template)
-  "Expand TEMPLATE in a user-selected directory.
-The initial directory is looked up based on
-`ptemplate-workspace-alist'. TEMPLATE's type is deduced from its
-path, which means that it should have been obtained using
-`ptemplate-list-templates', or at least be in a template
-directory."
-  (let* ((base (directory-file-name template))
-         (type (file-name-nondirectory (directory-file-name
-                                        (file-name-directory base))))
-         (workspace (alist-get type ptemplate-workspace-alist nil nil
-                               #'string=))
-         (target (read-file-name "Create project: " workspace workspace)))
-    (ptemplate-expand-template template target)))
-
-(defun ptemplate--list-templates-helm ()
-  "Make a list of helm sources from the user's templates.
-Gather a list of the user's templates using
-`ptemplate-list-templates' and convert each TYPE . TEMPLATES pair
-into a helm source with TYPE as its header. Each helm source's
-action is to create a new project in a directory prompted from
-the user (see `ptemplate-exec-template').
-
-Helm (in particular, helm-source.el) must already be loaded when
-this function is called."
-  (declare-function helm-make-source "helm" (name class &rest args))
-  (cl-loop for entry in (ptemplate-list-templates) collect
-           (helm-make-source (car entry) 'helm-source-sync
-             :candidates (cdr entry) :action #'ptemplate-exec-template)))
-
-;;;###autoload
-(defun helm-ptemplate-new-project ()
-  "Create a new project, prompting for a template using `helm'."
-  (interactive)
-  (require 'helm)
-  (declare-function helm "helm")
-  (helm :sources (ptemplate--list-templates-helm) :buffer "*helm ptemplate*"))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
