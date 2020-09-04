@@ -260,16 +260,16 @@ This mode is only for keybindings."
     ;; the actual payload (which is always in the cdr). (See
     ;; `ptemplate--snippet-chain' for details).
     (when-let ((next (pop (cdr chain))))
-     (if (bufferp next)
-         (switch-to-buffer next)
-       (find-file (cdr next))
-       (setq-local ptemplate--snippet-chain chain
-                   ;; inherit snippet env
-                   ptemplate-source-directory source-dir
-                   ptemplate-target-directory target-dir)
-       (ptemplate-snippet-chain-mode 1)
-       (yas-minor-mode 1)
-       (yas-expand-snippet (ptemplate--read-file (car next)))))))
+      (if (bufferp next)
+          (switch-to-buffer next)
+        (find-file (cdr next))
+        (setq-local ptemplate--snippet-chain chain
+                    ;; inherit snippet env
+                    ptemplate-source-directory source-dir
+                    ptemplate-target-directory target-dir)
+        (ptemplate-snippet-chain-mode 1)
+        (yas-minor-mode 1)
+        (yas-expand-snippet (ptemplate--read-file (car next)))))))
 
 (defun ptemplate-snippet-chain-next ()
   "Save the current buffer and continue in the snippet chain.
@@ -328,35 +328,43 @@ readable."
   (let ((cur-keyword)
         (result)
         (before-yas-eval)
-        (after-expand-eval))
+        (after-copy-eval))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
         (pcase cur-keyword
           (:init (push arg result))
           (:before-snippets (push arg before-yas-eval))
-          (:after (push arg after-expand-eval)))))
+          (:after (push arg after-copy-eval)))))
     (macroexp-progn
      (nconc (nreverse result)
             (when before-yas-eval
-              `((setq ptemplate--before-yas-eval
-                      ',(macroexp-progn (nreverse before-yas-eval)))))
-            (when after-expand-eval
-              `((setq ptemplate--after-expand-eval
-                      ',(macroexp-progn (nreverse after-expand-eval)))))))))
+              `((add-hook 'ptemplate--before-expand-hook
+                          (lambda () "Run before expanding snippets."
+                            ,@(nreverse before-yas-eval)))))
+            (when after-copy-eval
+              `((add-hook 'ptemplate--after-copy-hook
+                          (lambda () "Run after copying files."
+                            ,@(nreverse after-copy-eval)))))))))
 
+(defvar ptemplate--before-expand-hook nil
+  "Hook run before expanding yasnippets.
+Each function therein shall take no arguments.
+
+These variables are hooks to allow multiple ptemplate! blocks
+that specify :before-yas and :after.")
+
+(defvar ptemplate--after-copy-hook nil
+  "Hook run after copying files.
+Each function therein shall take no arguments. The user probably
+won't have filled in all snippets before this is expanded.
+
+See also `ptemplate--before-expand-hooks'.")
+
 ;;; (ptemplate--yasnippet-p :: String -> Bool)
 (defun ptemplate--yasnippet-p (file)
   "Check if FILE has a yasnippet extension and nil otherwise."
   (string-suffix-p ".yas" file))
-
-(defvar ptemplate--before-yas-eval nil
-  "Expression `eval'ed before expanding yasnippets.")
-
-(defvar ptemplate--after-expand-eval nil
-  "Expression `eval'ed after all files have been copied.
-The user probably won't have filled in all snippets before
-this is expanded.")
 
 ;;; (ptemplate-expand-template :: String -> String)
 ;;;###autoload
@@ -378,8 +386,8 @@ If called interactively, SOURCE is prompted using
   (setq source (file-name-as-directory source))
 
   (let ((dotptemplate (concat source ".ptemplate.el"))
-        (ptemplate--before-yas-eval)
-        (ptemplate--after-expand-eval)
+        (ptemplate--before-expand-hook)
+        (ptemplate--after-copy-hook)
 
         ;; the dotptemplate file should now about source and target.
         (ptemplate-source-directory source)
@@ -413,7 +421,7 @@ If called interactively, SOURCE is prompted using
               (cons (concat source file)
                     (concat target (file-name-sans-extension file)))))
             (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
-        (eval ptemplate--before-yas-eval)
+        (run-hooks 'ptemplate--before-expand-hook)
         (when yasnippets
           (ptemplate--snippet-chain-start yasnippets))
 
@@ -422,7 +430,7 @@ If called interactively, SOURCE is prompted using
                  (copy-file
                   file (concat target (file-name-sans-extension file))))
                 (t (copy-file file (concat target file)))))))
-    (eval ptemplate--after-expand-eval)))
+    (run-hooks 'ptemplate--after-copy-hook)))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
