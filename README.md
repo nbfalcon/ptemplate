@@ -130,7 +130,3 @@ template could have a snippet like the following in its .ptemplate.el or in a
 At that point, all security would be lost: the malicious shell script could nuke
 your home directory, implant a .profile-based rootkit, modify user-owned
 software, .... The possibilities are endless.
-
-# Limitations
-Currently only a single template expansion can be in progress at once (the
-snippet chain would break).

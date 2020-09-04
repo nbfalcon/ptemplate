@@ -186,16 +186,9 @@ directory."
                                ptemplate-default-workspace nil #'string=)))
     (read-file-name "Create project: " workspace workspace)))
 
-;;; (ptemplate--read-file :: String -> String)
-(defun ptemplate--read-file (file)
-  "Read FILE and return its contents a string."
-  (with-temp-buffer
-    (insert-file-contents file)
-    (buffer-string)))
-
 ;;; (ptemplate--snippet-chain :: (Cons String String) | Buffer)
-(defvar ptemplate--snippet-chain nil
-  "List of (SNIPPET . TARGET) or BUFFER.
+(defvar-local ptemplate--snippet-chain nil
+  "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
 Template directories can have any number of yasnippet files.
 These need to be filled in by the user. To do this, there is a
 snippet chain: a list of snippets and their target files or
@@ -206,7 +199,43 @@ then shown to the user. If the user presses
 \\[ptemplate-snippet-chain-next], the next item in the snippet
 chain is displayed. Buffers are appended to this list when the
 user presses \\<ptemplate-snippet-chain-mode-map>
-\\[ptemplate-snippet-chain-later].")
+\\[ptemplate-snippet-chain-later].
+
+To facilitate the expansion of multiple templates at once, the
+snippet chain must be buffer-local. However, if each buffer has
+its own list, updates to it wouldn't be synced across buffers
+stored for later finalization. Such buffers would contain already
+finalized filenames in their snippet chain. Because of this, a
+solution needs to be devised to share a buffer local value
+between multiple buffers, and `ptemplate--snippet-chain' works as
+follows: This variable actually stores a cons, the `cdr' of which
+points to the actual snippet chain, as described above, the `car'
+always being ignored. This way (pop (cdr
+`ptemplate--snippet-chain')) modifies it in a way that is shared
+between all buffers.
+
+See also `ptemplate--snippet-chain-start'.")
+
+(defvar-local ptemplate-target-directory nil
+  "Target directory of ptemplate expansion.
+You can use this in templates. This variable always ends in the
+platform-specific directory separator, so you can use this with
+`concat' to build file paths.
+
+Implementation note: this variable is always `setq-local''d for
+all snippet chain buffers, the next always inheriting it from the
+previous.")
+
+(defvar-local ptemplate-source-directory nil
+  "Source directory of ptemplate expansion.
+Akin to `ptemplate-source-directory'.")
+
+;;; (ptemplate--read-file :: String -> String)
+(defun ptemplate--read-file (file)
+  "Read FILE and return its contents a string."
+  (with-temp-buffer
+    (insert-file-contents file)
+    (buffer-string)))
 
 (define-minor-mode ptemplate-snippet-chain-mode
   "Minor mode for template directory snippets.
@@ -223,13 +252,24 @@ This mode is only for keybindings."
   (require 'yasnippet)
   (declare-function yas-minor-mode "yasnippet" (&optional arg))
   (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
-  (when-let ((next (pop ptemplate--snippet-chain)))
-    (if (bufferp next)
-        (switch-to-buffer next)
-      (find-file (cdr next))
-      (ptemplate-snippet-chain-mode 1)
-      (yas-minor-mode 1)
-      (yas-expand-snippet (ptemplate--read-file (car next))))))
+  (let ((chain ptemplate--snippet-chain)
+        (source-dir ptemplate-source-directory)
+        (target-dir ptemplate-target-directory))
+    ;; the snippet chain is a cons abused as a pointer: car is never used, while
+    ;; cdr is modified; the cons can be shared between multiple buffers, sharing
+    ;; the actual payload (which is always in the cdr). (See
+    ;; `ptemplate--snippet-chain' for details).
+    (when-let ((next (pop (cdr chain))))
+     (if (bufferp next)
+         (switch-to-buffer next)
+       (find-file (cdr next))
+       (setq-local ptemplate--snippet-chain chain
+                   ;; inherit snippet env
+                   ptemplate-source-directory source-dir
+                   ptemplate-target-directory target-dir)
+       (ptemplate-snippet-chain-mode 1)
+       (yas-minor-mode 1)
+       (yas-expand-snippet (ptemplate--read-file (car next)))))))
 
 (defun ptemplate-snippet-chain-next ()
   "Save the current buffer and continue in the snippet chain.
@@ -249,6 +289,8 @@ others."
   (interactive)
   (unless ptemplate--snippet-chain
     (user-error "No more snippets to expand"))
+  ;; snippet chain cannot be nil, so nconc will append to it, modifying it
+  ;; across all buffers.
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
@@ -256,19 +298,9 @@ others."
 (defun ptemplate--snippet-chain-start (snippets)
   "Start a snippet chain with SNIPPETS.
 For details, see `ptemplate--snippet-chain'."
-  (setq ptemplate--snippet-chain snippets)
-  (ptemplate--snippet-chain-continue))
+  (let ((ptemplate--snippet-chain (cons 'snippet-chain snippets)))
+    (ptemplate--snippet-chain-continue)))
 
-(defvar ptemplate-target-directory nil
-  "Target directory of ptemplate expansion.
-You can use this in templates. This variable always ends in the
-platform-specific directory separator, so you can use this with
-concat to build file paths.")
-
-(defvar ptemplate-source-directory nil
-  "Source directory of ptemplate expansion.
-Akin to `ptemplate-source-directory'.")
-
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
 For use in .ptemplate.el files. ARGS is a plist-like list with
@@ -342,15 +374,16 @@ If called interactively, SOURCE is prompted using
     (user-error "Directory %s already exists" target))
   (make-directory target t)
 
-  (setq target (expand-file-name (file-name-as-directory target)))
-  (setq source (expand-file-name (file-name-as-directory source)))
-
-  (setq ptemplate-target-directory target)
-  (setq ptemplate-source-directory source)
+  (setq target (file-name-as-directory target))
+  (setq source (file-name-as-directory source))
 
   (let ((dotptemplate (concat source ".ptemplate.el"))
         (ptemplate--before-yas-eval)
-        (ptemplate--after-expand-eval))
+        (ptemplate--after-expand-eval)
+
+        ;; the dotptemplate file should now about source and target.
+        (ptemplate-source-directory source)
+        (ptemplate-target-directory target))
     (when (file-exists-p dotptemplate)
       ;; NOTE: arbitrary code execution
       (load-file dotptemplate))
