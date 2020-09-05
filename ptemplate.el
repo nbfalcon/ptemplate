@@ -220,10 +220,11 @@ See also `ptemplate--snippet-chain-start'.")
   "Hook to run after the snippet chain finishes.
 Each function therein takes no arguments.")
 
-(defvar-local ptemplate--snippet-chain-inherit nil
-  "List of variables to pass on to a snippet-chain buffers.
+(defvar-local ptemplate--snippet-chain-env nil
+  "List of variables to set in snippet-chain buffers.
+Alist of (SYMBOL . VALUE).
 `ptemplate--snippet-chain-finalize-hook',
-`ptemplate--snippet-chain-inherit', ... should not be included.")
+`ptemplate--snippet-chain-env', ... should not be included.")
 
 ;;; (ptemplate--read-file :: String -> String)
 (defun ptemplate--read-file (file)
@@ -262,15 +263,16 @@ This mode is only for keybindings."
         (find-file next-file)
 
         ;; inherit snippet chain variables
-
         ;; NOTE: `ptemplate--snippet-chain', ... are `defvar-local', so need not
         ;; be made buffer-local.
-        (mapc #'make-variable-buffer-local ptemplate--snippet-chain-inherit)
-        (dolist (sym (append '(ptemplate--snippet-chain
-                               ptemplate--snippet-chain-inherit
-                               ptemplate--snippet-chain-finalize-hook)
-                             ptemplate--snippet-chain-inherit))
+        (dolist (sym '(ptemplate--snippet-chain
+                       ptemplate--snippet-chain-env
+                       ptemplate--snippet-chain-finalize-hook))
           (set sym (buffer-local-value sym oldbuf)))
+
+        ;; set env
+        (cl-loop for (sym . val) in ptemplate--snippet-chain-env do
+                 (set (make-local-variable sym) val))
 
         (ptemplate-snippet-chain-mode 1)
         (yas-minor-mode 1)
@@ -299,19 +301,17 @@ others."
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
-(defun ptemplate--snippet-chain-start (snippets &optional inherit finalize-hook)
+(defun ptemplate--snippet-chain-start (snippets &optional env finalize-hook)
   "Start a snippet chain with SNIPPETS.
 For details, see `ptemplate--snippet-chain'.
 
-INHERIT (a list of symbols) specifies the variables to set in
-each new buffer. Their values are taken from the current
-environment (you can let-bind them) and passed on to each new
-buffer.
+ENV (alist of (SYMBOL . VALUE)) specifies the variables to set in
+each new buffer.
 
 FINALIZE-HOOK is called when the snippet chain finishes (see
 `ptemplate--snippet-chain-finalize-hook')."
   (let ((ptemplate--snippet-chain (cons 'snippet-chain snippets))
-        (ptemplate--snippet-chain-inherit inherit)
+        (ptemplate--snippet-chain-env env)
         (ptemplate--snippet-chain-finalize-hook finalize-hook))
     (ptemplate--snippet-chain-continue)))
 
@@ -336,8 +336,7 @@ See also `ptemplate--before-expand-hooks'.")
 
 (defvar-local ptemplate--snippet-env nil
   "Environment used for snippet expansion.
-This variable has the form of expand-env in
-`yas-expand-snippet'.")
+Alist of (SYMBOL . VALUE).")
 
 (defvar-local ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
@@ -353,7 +352,6 @@ Akin to `ptemplate-source-directory'.")
   "Check if FILE has a yasnippet extension and nil otherwise."
   (string-suffix-p ".yas" file))
 
-;;; (ptemplate-expand-template :: String -> String)
 ;;;###autoload
 (defun ptemplate-expand-template (source target)
   "Expand the template in SOURCE to TARGET.
@@ -422,14 +420,12 @@ If called interactively, SOURCE is prompted using
 
         (run-hooks 'ptemplate--before-expand-hook)
         (when yasnippets
-          (let ((snippet-env-vars (mapcar #'car ptemplate--snippet-env))
-                (snippet-env-values (mapcar #'cdr ptemplate--snippet-env)))
-            (cl-progv (mapcar #'car ptemplate--snippet-env) snippet-env-values
-              (ptemplate--snippet-chain-start
-               yasnippets
-               (nconc snippet-env-vars
-                      '(ptemplate-source-directory ptemplate-target-directory))
-               ptemplate--finalize-hook))))))))
+          (ptemplate--snippet-chain-start
+           yasnippets
+           (nconc `((ptemplate-source-directory . ,ptemplate-source-directory)
+                    (ptemplate-target-directory . ,ptemplate-target-directory))
+                  ptemplate--snippet-env)
+           ptemplate--finalize-hook))))))
 
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
