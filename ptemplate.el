@@ -216,19 +216,14 @@ between all buffers.
 
 See also `ptemplate--snippet-chain-start'.")
 
-(defvar-local ptemplate-target-directory nil
-  "Target directory of ptemplate expansion.
-You can use this in templates. This variable always ends in the
-platform-specific directory separator, so you can use this with
-`concat' to build file paths.
+(defvar-local ptemplate--snippet-chain-finalize-hook nil
+  "Hook to run after the snippet chain finishes.
+Each function therein takes no arguments.")
 
-Implementation note: this variable is always `setq-local''d for
-all snippet chain buffers, the next always inheriting it from the
-previous.")
-
-(defvar-local ptemplate-source-directory nil
-  "Source directory of ptemplate expansion.
-Akin to `ptemplate-source-directory'.")
+(defvar-local ptemplate--snippet-chain-inherit nil
+  "List of variables to pass on to a snippet-chain buffers.
+`ptemplate--snippet-chain-finalize-hook',
+`ptemplate--snippet-chain-inherit', ... should not be included.")
 
 ;;; (ptemplate--read-file :: String -> String)
 (defun ptemplate--read-file (file)
@@ -252,24 +247,34 @@ This mode is only for keybindings."
   (require 'yasnippet)
   (declare-function yas-minor-mode "yasnippet" (&optional arg))
   (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
-  (let ((chain ptemplate--snippet-chain)
-        (source-dir ptemplate-source-directory)
-        (target-dir ptemplate-target-directory))
-    ;; the snippet chain is a cons abused as a pointer: car is never used, while
-    ;; cdr is modified; the cons can be shared between multiple buffers, sharing
-    ;; the actual payload (which is always in the cdr). (See
-    ;; `ptemplate--snippet-chain' for details).
-    (when-let ((next (pop (cdr chain))))
-      (if (bufferp next)
-          (switch-to-buffer next)
-        (find-file (cdr next))
-        (setq-local ptemplate--snippet-chain chain
-                    ;; inherit snippet env
-                    ptemplate-source-directory source-dir
-                    ptemplate-target-directory target-dir)
+  ;; the snippet chain is a cons abused as a pointer: car is never used, while
+  ;; cdr is modified; the cons can be shared between multiple buffers, sharing
+  ;; the actual payload (which is always in the cdr). (See
+  ;; `ptemplate--snippet-chain' for details).
+  (let ((next (pop (cdr ptemplate--snippet-chain))))
+    (cond
+     ((null next) (run-hooks 'ptemplate--snippet-chain-finalize-hook))
+     ((bufferp next) (switch-to-buffer next))
+     ((consp next)
+      (let ((oldbuf (current-buffer))
+            (next-file (cdr next))
+            (source-file (car next)))
+        (find-file next-file)
+
+        ;; inherit snippet chain variables
+
+        ;; NOTE: `ptemplate--snippet-chain', ... are `defvar-local', so need not
+        ;; be made buffer-local.
+        (mapc #'make-variable-buffer-local ptemplate--snippet-chain-inherit)
+        (dolist (sym (append '(ptemplate--snippet-chain
+                               ptemplate--snippet-chain-inherit
+                               ptemplate--snippet-chain-finalize-hook)
+                      ptemplate--snippet-chain-inherit))
+          (set sym (buffer-local-value sym oldbuf)))
+
         (ptemplate-snippet-chain-mode 1)
         (yas-minor-mode 1)
-        (yas-expand-snippet (ptemplate--read-file (car next)))))))
+        (yas-expand-snippet (ptemplate--read-file source-file)))))))
 
 (defun ptemplate-snippet-chain-next ()
   "Save the current buffer and continue in the snippet chain.
@@ -294,73 +299,50 @@ others."
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
-;;; (ptemplate--snippet-chain-start :: [Cons String String | Buffer])
-(defun ptemplate--snippet-chain-start (snippets)
+(defun ptemplate--snippet-chain-start (snippets &optional inherit finalize-hook)
   "Start a snippet chain with SNIPPETS.
-For details, see `ptemplate--snippet-chain'."
-  (let ((ptemplate--snippet-chain (cons 'snippet-chain snippets)))
+For details, see `ptemplate--snippet-chain'.
+
+INHERIT (a list of symbols) specifies the variables to set in
+each new buffer. Their values are taken from the current
+environment (you can let-bind them) and passed on to each new
+buffer.
+
+FINALIZE-HOOK is called when the snippet chain finishes (see
+`ptemplate--snippet-chain-finalize-hook')."
+  (let ((ptemplate--snippet-chain (cons 'snippet-chain snippets))
+        (ptemplate--snippet-chain-inherit inherit)
+        (ptemplate--snippet-chain-finalize-hook finalize-hook))
     (ptemplate--snippet-chain-continue)))
-
-(defmacro ptemplate! (&rest args)
-  "Define a smart ptemplate with elisp.
-For use in .ptemplate.el files. ARGS is a plist-like list with
-any number of sections, specfied as :<section name> FORM... (like
-in `use-package'). Sections can appear multiple times: you could,
-for example, have multiple :init sections, the FORMs of which
-would get evaluated in sequence. Supported keyword are:
-
-:init FORMs to run before expansion.
-
-:before-snippets FORMs to run before expanding yasnippets. Use
-                 this if you need to ask the user questions that
-                 could influence yasnippet expansion, but that
-                 shouldn't block file copying.
-
-:after FORMs to run after all files have been copied. The
-             ptemplate's snippets need not have been expanded
-             already.
-
-Note that because .ptemplate.el files execute arbitrary code, you
-could write them entirely without using this macro (e.g. by
-modifying hooks directly, ...). However, you should still use
-`ptemplate!', as this makes templates more future-proof and
-readable."
-  (let ((cur-keyword)
-        (result)
-        (before-yas-eval)
-        (after-copy-eval))
-    (dolist (arg args)
-      (if (keywordp arg)
-          (setq cur-keyword arg)
-        (pcase cur-keyword
-          (:init (push arg result))
-          (:before-snippets (push arg before-yas-eval))
-          (:after (push arg after-copy-eval)))))
-    (macroexp-progn
-     (nconc (nreverse result)
-            (when before-yas-eval
-              `((add-hook 'ptemplate--before-expand-hook
-                          (lambda () "Run before expanding snippets."
-                            ,@(nreverse before-yas-eval)))))
-            (when after-copy-eval
-              `((add-hook 'ptemplate--after-copy-hook
-                          (lambda () "Run after copying files."
-                            ,@(nreverse after-copy-eval)))))))))
 
 (defvar ptemplate--before-expand-hook nil
   "Hook run before expanding yasnippets.
 Each function therein shall take no arguments.
 
 These variables are hooks to allow multiple ptemplate! blocks
-that specify :before-yas and :after.")
+that specify :before-yas, :after, ....")
 
 (defvar ptemplate--after-copy-hook nil
   "Hook run after copying files.
-Each function therein shall take no arguments. The user probably
-won't have filled in all snippets before this is expanded.
+
+See also `ptemplate--before-expand-hook'.")
+
+(defvar ptemplate--finalize-hook nil
+  "Hook to run after template expansion finishes.
+At this point, no more files need to be copied and no more
+snippets need be expanded.
 
 See also `ptemplate--before-expand-hooks'.")
 
+(defvar-local ptemplate-target-directory nil
+  "Target directory of ptemplate expansion.
+You can use this in templates. This variable always ends in the
+platform-specific directory separator, so you can use this with
+`concat' to build file paths.")
+
+(defvar-local ptemplate-source-directory nil
+  "Source directory of ptemplate expansion.
+Akin to `ptemplate-source-directory'.")
 ;;; (ptemplate--yasnippet-p :: String -> Bool)
 (defun ptemplate--yasnippet-p (file)
   "Check if FILE has a yasnippet extension and nil otherwise."
@@ -379,6 +361,9 @@ If called interactively, SOURCE is prompted using
   (interactive (let ((template (funcall ptemplate-template-prompt-function)))
                  (list template (ptemplate--prompt-target template))))
   (when (file-directory-p target)
+    ;; NOTE: the error message should mention the user-supplied target (not
+    ;; necessarily with a slash at the end), so do this buffer
+    ;; (file-name-as-directory).
     (user-error "Directory %s already exists" target))
   (make-directory target t)
 
@@ -388,8 +373,9 @@ If called interactively, SOURCE is prompted using
   (let ((dotptemplate (concat source ".ptemplate.el"))
         (ptemplate--before-expand-hook)
         (ptemplate--after-copy-hook)
+        (ptemplate--finalize-hook)
 
-        ;; the dotptemplate file should now about source and target.
+        ;; the dotptemplate file should know about source and target.
         (ptemplate-source-directory source)
         (ptemplate-target-directory target))
     (when (file-exists-p dotptemplate)
@@ -421,16 +407,69 @@ If called interactively, SOURCE is prompted using
               (cons (concat source file)
                     (concat target (file-name-sans-extension file)))))
             (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
-        (run-hooks 'ptemplate--before-expand-hook)
-        (when yasnippets
-          (ptemplate--snippet-chain-start yasnippets))
-
         (dolist (file normal-files)
           (cond ((string-suffix-p ".keep" file)
                  (copy-file
                   file (concat target (file-name-sans-extension file))))
-                (t (copy-file file (concat target file)))))))
-    (run-hooks 'ptemplate--after-copy-hook)))
+                (t (copy-file file (concat target file)))))
+        (run-hooks 'ptemplate--after-copy-hook)
+
+        (run-hooks 'ptemplate--before-expand-hook)
+        (when yasnippets
+          (ptemplate--snippet-chain-start
+           yasnippets '(ptemplate-source-directory ptemplate-target-directory)
+           ptemplate--finalize-hook))))))
+
+(defmacro ptemplate! (&rest args)
+  "Define a smart ptemplate with elisp.
+For use in .ptemplate.el files. ARGS is a plist-like list with
+any number of sections, specfied as :<section name> FORM... (like
+in `use-package'). Sections can appear multiple times: you could,
+for example, have multiple :init sections, the FORMs of which
+would get evaluated in sequence. Supported keyword are:
+
+:init FORMs to run before expansion.
+
+:before-snippets FORMs to run before expanding yasnippets.
+
+:after-copy FORMs to run after all files have been copied. The
+            ptemplate's snippets need not have been expanded
+            already.
+
+:finalize FORMs to run after expansion finishes.
+
+Note that because .ptemplate.el files execute arbitrary code, you
+could write them entirely without using this macro (e.g. by
+modifying hooks directly, ...). However, you should still use
+`ptemplate!', as this makes templates more future-proof and
+readable."
+  (let ((cur-keyword)
+        (result)
+        (before-yas-eval)
+        (after-copy-eval)
+        (finalize-eval))
+    (dolist (arg args)
+      (if (keywordp arg)
+          (setq cur-keyword arg)
+        (pcase cur-keyword
+          (:init (push arg result))
+          (:before-snippets (push arg before-yas-eval))
+          (:after-copy (push arg after-copy-eval))
+          (:finalize (push arg finalize-eval)))))
+    (macroexp-progn
+     (nconc (nreverse result)
+            (when before-yas-eval
+              `((add-hook 'ptemplate--before-expand-hook
+                          (lambda () "Run before expanding snippets."
+                            ,@(nreverse before-yas-eval)))))
+            (when after-copy-eval
+              `((add-hook 'ptemplate--after-copy-hook
+                          (lambda () "Run after copying files."
+                            ,@(nreverse after-copy-eval)))))
+            (when finalize-eval
+              `((add-hook 'ptemplate--finalize-hook
+                          (lambda () "Run after template expansion finishes."
+                            ,@(nreverse finalize-eval)))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
