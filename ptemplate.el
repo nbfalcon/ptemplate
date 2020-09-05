@@ -269,7 +269,7 @@ This mode is only for keybindings."
         (dolist (sym (append '(ptemplate--snippet-chain
                                ptemplate--snippet-chain-inherit
                                ptemplate--snippet-chain-finalize-hook)
-                      ptemplate--snippet-chain-inherit))
+                             ptemplate--snippet-chain-inherit))
           (set sym (buffer-local-value sym oldbuf)))
 
         (ptemplate-snippet-chain-mode 1)
@@ -334,6 +334,11 @@ snippets need be expanded.
 
 See also `ptemplate--before-expand-hooks'.")
 
+(defvar-local ptemplate--snippet-env nil
+  "Environment used for snippet expansion.
+This variable has the form of expand-env in
+`yas-expand-snippet'.")
+
 (defvar-local ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
 You can use this in templates. This variable always ends in the
@@ -374,6 +379,7 @@ If called interactively, SOURCE is prompted using
         (ptemplate--before-expand-hook)
         (ptemplate--after-copy-hook)
         (ptemplate--finalize-hook)
+        (ptemplate--snippet-env)
 
         ;; the dotptemplate file should know about source and target.
         (ptemplate-source-directory source)
@@ -416,9 +422,14 @@ If called interactively, SOURCE is prompted using
 
         (run-hooks 'ptemplate--before-expand-hook)
         (when yasnippets
-          (ptemplate--snippet-chain-start
-           yasnippets '(ptemplate-source-directory ptemplate-target-directory)
-           ptemplate--finalize-hook))))))
+          (let ((snippet-env-vars (mapcar #'car ptemplate--snippet-env))
+                (snippet-env-values (mapcar #'cdr ptemplate--snippet-env)))
+            (cl-progv (mapcar #'car ptemplate--snippet-env) snippet-env-values
+              (ptemplate--snippet-chain-start
+               yasnippets
+               (nconc snippet-env-vars
+                      '(ptemplate-source-directory ptemplate-target-directory))
+               ptemplate--finalize-hook))))))))
 
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
@@ -428,7 +439,8 @@ in `use-package'). Sections can appear multiple times: you could,
 for example, have multiple :init sections, the FORMs of which
 would get evaluated in sequence. Supported keyword are:
 
-:init FORMs to run before expansion.
+:init FORMs to run before expansion. This is the default when no
+      section is specified.
 
 :before-snippets FORMs to run before expanding yasnippets.
 
@@ -438,16 +450,23 @@ would get evaluated in sequence. Supported keyword are:
 
 :finalize FORMs to run after expansion finishes.
 
+:snippet-env variables to make available in snippets. Their
+             values are examined at the end of `ptemplate!' and
+             stored. Each element after :env shall be a symbol or
+             a list of the form (SYMBOL VALUEFORM), like in
+             `let'. the SYMBOLs should not be quoted.
+
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
 modifying hooks directly, ...). However, you should still use
 `ptemplate!', as this makes templates more future-proof and
 readable."
-  (let ((cur-keyword)
+  (let ((cur-keyword :init)
         (result)
         (before-yas-eval)
         (after-copy-eval)
-        (finalize-eval))
+        (finalize-eval)
+        (snippet-env))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
@@ -455,21 +474,33 @@ readable."
           (:init (push arg result))
           (:before-snippets (push arg before-yas-eval))
           (:after-copy (push arg after-copy-eval))
-          (:finalize (push arg finalize-eval)))))
+          (:finalize (push arg finalize-eval))
+          (:snippet-env (push arg snippet-env)))))
     (macroexp-progn
-     (nconc (nreverse result)
-            (when before-yas-eval
-              `((add-hook 'ptemplate--before-expand-hook
-                          (lambda () "Run before expanding snippets."
-                            ,@(nreverse before-yas-eval)))))
-            (when after-copy-eval
-              `((add-hook 'ptemplate--after-copy-hook
-                          (lambda () "Run after copying files."
-                            ,@(nreverse after-copy-eval)))))
-            (when finalize-eval
-              `((add-hook 'ptemplate--finalize-hook
-                          (lambda () "Run after template expansion finishes."
-                            ,@(nreverse finalize-eval)))))))))
+     (nconc
+      (nreverse result)
+      (when before-yas-eval
+        `((add-hook 'ptemplate--before-expand-hook
+                    (lambda () "Run before expanding snippets."
+                      ,@(nreverse before-yas-eval)))))
+      (when after-copy-eval
+        `((add-hook 'ptemplate--after-copy-hook
+                    (lambda () "Run after copying files."
+                      ,@(nreverse after-copy-eval)))))
+      (when finalize-eval
+        `((add-hook 'ptemplate--finalize-hook
+                    (lambda () "Run after template expansion finishes."
+                      ,@(nreverse finalize-eval)))))
+      (when snippet-env
+        `((setq
+           ptemplate--snippet-env
+           (nconc
+            ptemplate--snippet-env
+            (list ,@(cl-loop
+                     for var in snippet-env collect
+                     (if (listp var)
+                         (list #'cons (macroexp-quote (car var)) (cadr var))
+                       `(cons ',var ,var))))))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
