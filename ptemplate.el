@@ -415,6 +415,8 @@ If called interactively, SOURCE is prompted using
           (cond ((string-suffix-p ".keep" file)
                  (copy-file
                   file (concat target (file-name-sans-extension file))))
+                ;; .nocopy -> don't copy; useful as gitkeep
+                ((string-suffix-p ".nocopy" file))
                 (t (copy-file file (concat target file)))))
         (run-hooks 'ptemplate--after-copy-hook)
 

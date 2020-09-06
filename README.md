@@ -53,6 +53,11 @@ The keybindings can be modified by customizing
 files this way if you need to override ptemplate's special file handling for
 some files (e.g. if you are writing templates for ptemplate templates).
 
+### \*.nocopy
+Such files are not copied at all. Empty directories cannot be added to git. This
+way, an empty .gitkeep.nocopy file can be added in empty directories to make
+them part of the template.
+
 ### .ptemplate.el
 As stated in "About", ptemplate allows templates to be scripted with Emacs Lisp.
 For this, you can add .ptemplate.el in the template's root directory, which is
@@ -63,7 +68,8 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 
 - :init FORMs to run before expansion
 - :before-snippets FORMs to run before expanding yasnippets
-- :after FORMs to run after all files have been copied
+- :after-copy FORMs to run after all files have been copied
+- :finalize FORMs to run after expansion finishes.
 
 For details, see `M-x describe-function ptemplate!`.
 
