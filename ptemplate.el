@@ -35,6 +35,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'subr-x)
 
 ;;; (ptemplate-template-dirs :: [String])
 (defcustom ptemplate-template-dirs '()
@@ -224,7 +225,9 @@ Each function therein takes no arguments.")
   "List of variables to set in snippet-chain buffers.
 Alist of (SYMBOL . VALUE).
 `ptemplate--snippet-chain-finalize-hook',
-`ptemplate--snippet-chain-env', ... should not be included.")
+`ptemplate--snippet-chain-env', ... should not be included. All
+variables will be made buffer-local before being set, so
+`defvar-local' is not necessary.")
 
 ;;; (ptemplate--read-file :: String -> String)
 (defun ptemplate--read-file (file)
@@ -262,9 +265,8 @@ This mode is only for keybindings."
             (source-file (car next)))
         (find-file next-file)
 
-        ;; inherit snippet chain variables
-        ;; NOTE: `ptemplate--snippet-chain', ... are `defvar-local', so need not
-        ;; be made buffer-local.
+        ;; Inherit snippet chain variables. NOTE: `ptemplate--snippet-chain',
+        ;; ... are `defvar-local', so need not be made buffer-local.
         (dolist (sym '(ptemplate--snippet-chain
                        ptemplate--snippet-chain-env
                        ptemplate--snippet-chain-finalize-hook))
@@ -315,7 +317,18 @@ FINALIZE-HOOK is called when the snippet chain finishes (see
         (ptemplate--snippet-chain-finalize-hook finalize-hook))
     (ptemplate--snippet-chain-continue)))
 
-(defvar ptemplate--before-expand-hook nil
+;; HACKING NOTE: since ptemplate supports scripting within .ptemplate.el files,
+;; certain variables need to be made available to that file for use with the
+;; `ptemplate!' macro to hook into expansion. These variables should be defined
+;; within this block, and made available by using `let' within
+;; `ptemplate-expand-template'. `let' is used instead of `setq', as ptemplate
+;; supports the expansion of multiple templates at once. This means that these
+;; variables need to be overriden in separate contexts, potentially at once,
+;; which was traditionally implemented using dynamic-binding. However, using
+;; dynamic binding is recommended against; to still support the features of the
+;; latter, Emacs allows `let' to override global variables in dynamic-binding
+;; style, a feature made use of in `ptemplate-expand-template'.
+(defvar ptemplate--before-snippet-hook nil
   "Hook run before expanding yasnippets.
 Each function therein shall take no arguments.
 
@@ -325,7 +338,7 @@ that specify :before-yas, :after, ....")
 (defvar ptemplate--after-copy-hook nil
   "Hook run after copying files.
 
-See also `ptemplate--before-expand-hook'.")
+See also `ptemplate--before-snippet-hook'.")
 
 (defvar ptemplate--finalize-hook nil
   "Hook to run after template expansion finishes.
@@ -336,7 +349,8 @@ See also `ptemplate--before-expand-hooks'.")
 
 (defvar-local ptemplate--snippet-env nil
   "Environment used for snippet expansion.
-Alist of (SYMBOL . VALUE).")
+Alist of (SYMBOL . VALUE). See also
+`ptemplate--snippet-chain-env'.")
 
 (defvar-local ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
@@ -352,6 +366,13 @@ Akin to `ptemplate-source-directory'.")
   "Check if FILE has a yasnippet extension and nil otherwise."
   (string-suffix-p ".yas" file))
 
+(defvar ptemplate--template-files nil
+  "List of files in the template being expanded.
+All files are strings, representing paths to the files and
+directories of the template currently being expanded. All paths
+are relative to that template. This variable is always
+let-bound.")
+
 ;;;###autoload
 (defun ptemplate-expand-template (source target)
   "Expand the template in SOURCE to TARGET.
@@ -374,61 +395,100 @@ If called interactively, SOURCE is prompted using
   (setq source (file-name-as-directory source))
 
   (let ((dotptemplate (concat source ".ptemplate.el"))
-        (ptemplate--before-expand-hook)
+        (ptemplate--before-snippet-hook)
         (ptemplate--after-copy-hook)
         (ptemplate--finalize-hook)
         (ptemplate--snippet-env)
 
         ;; the dotptemplate file should know about source and target.
         (ptemplate-source-directory source)
-        (ptemplate-target-directory target))
+        (ptemplate-target-directory target)
+
+        ;; all template files should start with a ., which makes them source and
+        ;; target agnostic. `concat' source/target + file will yield a correct
+        ;; path because of this. NOTE: we mustn't override `default-directory'
+        ;; for .ptemplate.el, as it should have access to the entire context of
+        ;; the current buffer.
+        (ptemplate--template-files (let ((default-directory source))
+                                     (directory-files-recursively "." "" t))))
     (when (file-exists-p dotptemplate)
       ;; NOTE: arbitrary code execution
       (load-file dotptemplate))
+    (cl-loop for file in ptemplate--template-files do
+             ;; directories need to be created "as-is" (they may potentially
+             ;; be empty); files must not be created as directories however
+             ;; but their containing directories instead. This avoids prompts
+             ;; asking the user if they really want to save a file even though
+             ;; its containing directory was not made yet.
+             (unless (file-directory-p file)
+               (setq file (file-name-directory file)))
+             (make-directory (concat target file) t))
 
-    ;; This way, all template files will begin with ./, making them easier to
-    ;; copy to target (just concat target file).
+    ;; directories were already made
+    ;; TODO: redundant work involving syscalls
+    (setq ptemplate--template-files
+          (cl-delete-if #'file-directory-p ptemplate--template-files))
+    ;; don't copy the dotptemplate file; there's .keep for that
+    (setq ptemplate--template-files
+          (cl-delete "./.ptemplate.el" ptemplate--template-files
+                     :test #'string=))
 
-    ;; We can't merge the two lets because the dotptemplate file must be eval'd
-    ;; in the context of the calling buffer, without default-directory being
-    ;; modified.
-    (let* ((default-directory source)
-           (files (directory-files-recursively "." "" t)))
-      ;; make directories
-      (cl-loop for file in files do
-               (unless (file-directory-p file)
-                 (setq file (file-name-directory file)))
-               (make-directory (concat target file) t))
+    (let ((yasnippets
+           (cl-loop for file in ptemplate--template-files
+                    if (ptemplate--yasnippet-p file) collect
+                    (cons (concat source file)
+                          (concat target (file-name-sans-extension file)))))
+          (normal-files (cl-delete-if #'ptemplate--yasnippet-p
+                                      ptemplate--template-files)))
+      (dolist (file normal-files)
+        ;; TODO: .keep, .nocopy, .yas and files without extensions may alias.
+        (cond ((string-suffix-p ".keep" file)
+               (copy-file
+                file (concat target (file-name-sans-extension file))))
+              ;; .nocopy -> don't copy; useful as gitkeep
+              ((string-suffix-p ".nocopy" file))
+              (t (copy-file file (concat target file)))))
+      ;; TODO consolidate hooks
+      (run-hooks 'ptemplate--after-copy-hook)
 
-      ;; directories were already made
-      (setq files (cl-delete-if #'file-directory-p files))
-      ;; don't copy the dotptemplate file
-      (setq files (cl-delete "./.ptemplate.el" files :test #'string=))
-
-      (let ((yasnippets
-             (cl-loop
-              for file in files if (ptemplate--yasnippet-p file) collect
-              (cons (concat source file)
-                    (concat target (file-name-sans-extension file)))))
-            (normal-files (cl-delete-if #'ptemplate--yasnippet-p files)))
-        (dolist (file normal-files)
-          (cond ((string-suffix-p ".keep" file)
-                 (copy-file
-                  file (concat target (file-name-sans-extension file))))
-                ;; .nocopy -> don't copy; useful as gitkeep
-                ((string-suffix-p ".nocopy" file))
-                (t (copy-file file (concat target file)))))
-        (run-hooks 'ptemplate--after-copy-hook)
-
-        (run-hooks 'ptemplate--before-expand-hook)
-        (when yasnippets
-          (ptemplate--snippet-chain-start
-           yasnippets
-           (nconc `((ptemplate-source-directory . ,ptemplate-source-directory)
-                    (ptemplate-target-directory . ,ptemplate-target-directory))
-                  ptemplate--snippet-env)
-           ptemplate--finalize-hook))))))
+      (run-hooks 'ptemplate--before-snippet-hook)
+      (when yasnippets
+        (ptemplate--snippet-chain-start
+         yasnippets
+         (nconc `((ptemplate-source-directory . ,ptemplate-source-directory)
+                  (ptemplate-target-directory . ,ptemplate-target-directory))
+                ptemplate--snippet-env)
+         ptemplate--finalize-hook)))))
 
+(defun ptemplate--unix-to-native-path (path)
+  "Replace slashes in PATH with the platform's directory separator.
+PATH is a file path, as a string, assumed to use slashses as
+directory separators. On platforms where that character is
+different \(MSDOS, Windows), replace such slashes with the
+platforms equivalent."
+  (declare (side-effect-free t))
+  (if (memq system-type '(msdos windows-nt))
+      (replace-regexp-in-string "/" "\\" path nil t)
+    path))
+
+(defun ptemplate--make-basename-regex (file)
+  "Return a regex matching FILE as a basename.
+FILE shall be a regular expressions matching a path, separated
+using slashes, which will be converted to the platform-specific
+directory separator. The returned regex will match if FILE
+matches at the start of some string or if FILE matches after a
+platform-specific directory separator. The returned regexes can
+be used to remove files with certain filenames from directory
+listings.
+
+Note that . or .. path components are not handled at all, meaning
+that \(string-match-p \(ptemplate--make-basename-regex \"tmp/foo\")
+\"tmp/foo/../foo\") will yield nil."
+  (declare (side-effect-free t))
+  (format "%s%s\\'"
+          (ptemplate--unix-to-native-path "\\(?:/\\|\\`\\)")
+          (ptemplate--unix-to-native-path file)))
+
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
 For use in .ptemplate.el files. ARGS is a plist-like list with
@@ -454,6 +514,9 @@ would get evaluated in sequence. Supported keyword are:
              a list of the form (SYMBOL VALUEFORM), like in
              `let'. the SYMBOLs should not be quoted.
 
+:ignore Regexes specifying file basenames to ignore. See
+        `ptemplate--make-ignore-regex' for details.
+
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
 modifying hooks directly, ...). However, you should still use
@@ -464,7 +527,8 @@ readable."
         (before-yas-eval)
         (after-copy-eval)
         (finalize-eval)
-        (snippet-env))
+        (snippet-env)
+        (ignored-filenames))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
@@ -473,12 +537,19 @@ readable."
           (:before-snippets (push arg before-yas-eval))
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
-          (:snippet-env (push arg snippet-env)))))
+          (:snippet-env (push arg snippet-env))
+          (:ignore (push arg ignored-filenames)))))
     (macroexp-progn
      (nconc
       (nreverse result)
+      (let ((ignored-file-regex (mapconcat #'ptemplate--make-basename-regex
+                                           ignored-filenames "\\|")))
+        `((setq
+           ptemplate--template-files
+           (cl-delete-if (apply-partially #'string-match-p ,ignored-file-regex)
+                         ptemplate--template-files))))
       (when before-yas-eval
-        `((add-hook 'ptemplate--before-expand-hook
+        `((add-hook 'ptemplate--before-snippet-hook
                     (lambda () "Run before expanding snippets."
                       ,@(nreverse before-yas-eval)))))
       (when after-copy-eval
