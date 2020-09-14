@@ -72,8 +72,8 @@ all occurrences, but only the first."
   "List DIR, including directories.
 A list of the full paths of each element is returned. The special
 directories \".\" and \"..\" are ignored."
-  (cl-delete-if (lambda (f) (or (string-suffix-p "/." f)
-                                (string-suffix-p "/.." f)))
+  (cl-delete-if (lambda (f) (or (string= (file-name-base f) ".")
+                                (string= (file-name-base f) "..")))
                 (directory-files dir t)))
 
 (defun ptemplate-list-template-dir (dir)
@@ -430,8 +430,10 @@ If called interactively, SOURCE is prompted using
           (cl-delete-if #'file-directory-p ptemplate--template-files))
     ;; don't copy the dotptemplate file; there's .keep for that
     (setq ptemplate--template-files
-          (cl-delete "./.ptemplate.el" ptemplate--template-files
-                     :test #'string=))
+          (cl-delete-if (lambda (f)
+                          (or (string= (file-name-base f) ".ptemplate.el")
+                              (string= (file-name-base f) ".ptemplate.elc")))
+                        ptemplate--template-files))
 
     (let ((yasnippets
            (cl-loop for file in ptemplate--template-files
