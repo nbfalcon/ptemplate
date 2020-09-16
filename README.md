@@ -70,7 +70,7 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :before-snippets FORMs to run before expanding yasnippets
 - :after-copy FORMs to run after all files have been copied
 - :finalize FORMs to run after expansion finishes.
-- :ignore Regular expressions of filenames to ignore.
+- :ignore Regular expressions of filenames to ignore or paths to ignore.
 
 For details, see `M-x describe-function ptemplate!`.
 

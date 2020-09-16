@@ -487,9 +487,18 @@ Note that . or .. path components are not handled at all, meaning
 that \(string-match-p \(ptemplate--make-basename-regex \"tmp/foo\")
 \"tmp/foo/../foo\") will yield nil."
   (declare (side-effect-free t))
-  (format "%s%s\\'"
-          (ptemplate--unix-to-native-path "\\(?:/\\|\\`\\)")
-          (ptemplate--unix-to-native-path file)))
+  (concat (ptemplate--unix-to-native-path "\\(?:/\\|\\`\\)")
+          (ptemplate--unix-to-native-path file) "\\'"))
+
+(defun ptemplate--make-path-regex (path)
+  "Make a regex matching PATH if some PATH is below it.
+The resulting regex shall match if some other path starts with
+PATH. Slashes should be used to separate directories in PATH, the
+necessary conversion being done for windows and msdos. The same
+caveats apply as for `ptemplate--make-basename-regex'."
+  (declare (side-effect-free t))
+  (concat "\\`" (regexp-quote (ptemplate--unix-to-native-path path))
+          (ptemplate--unix-to-native-path "\\(?:/\\|\\'\\)")))
 
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
@@ -517,7 +526,10 @@ would get evaluated in sequence. Supported keyword are:
              `let'. the SYMBOLs should not be quoted.
 
 :ignore Regexes specifying file basenames to ignore. See
-        `ptemplate--make-ignore-regex' for details.
+        `ptemplate--make-basename-regex' for details. If an
+        argument to this keywords starts with /, it is
+        interpreted as a template path to ignore \(see
+        `ptemplate--make-path-regex').
 
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
@@ -530,7 +542,7 @@ readable."
         (after-copy-eval)
         (finalize-eval)
         (snippet-env)
-        (ignored-filenames))
+        (ignored-file-regexes))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
@@ -540,16 +552,20 @@ readable."
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
           (:snippet-env (push arg snippet-env))
-          (:ignore (push arg ignored-filenames)))))
+          (:ignore (push (if (string-prefix-p "/" arg)
+                             (ptemplate--make-path-regex
+                              (concat "." (string-remove-suffix "/" arg)))
+                           (ptemplate--make-basename-regex arg))
+                         ignored-file-regexes)))))
     (macroexp-progn
      (nconc
       (nreverse result)
-      (let ((ignored-file-regex (mapconcat #'ptemplate--make-basename-regex
-                                           ignored-filenames "\\|")))
-        `((setq
-           ptemplate--template-files
-           (cl-delete-if (apply-partially #'string-match-p ,ignored-file-regex)
-                         ptemplate--template-files))))
+      (when ignored-file-regexes
+        (let ((delete-regex (string-join ignored-file-regexes "\\|")))
+          `((setq
+             ptemplate--template-files
+             (cl-delete-if (apply-partially #'string-match-p ,delete-regex)
+                           ptemplate--template-files)))))
       (when before-yas-eval
         `((add-hook 'ptemplate--before-snippet-hook
                     (lambda () "Run before expanding snippets."
