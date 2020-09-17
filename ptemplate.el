@@ -520,7 +520,7 @@ caveats apply as for `ptemplate--make-basename-regex'."
   (concat "\\`" (regexp-quote (ptemplate--unix-to-native-path path))
           (ptemplate--unix-to-native-path "\\(?:/\\|\\'\\)")))
 
-(defun ptemplate--prune-files (regex)
+(defun ptemplate--prune-template-files (regex)
   "Remove all template whose source files match REGEX.
 This function is only supposed to be called from `ptemplate!'."
   (setq ptemplate--template-files
@@ -535,6 +535,17 @@ PATH shall be a template-relative file."
     (if (string-prefix-p (ptemplate--unix-to-native-path "./") path)
         path
       (concat (ptemplate--unix-to-native-path "./") path))))
+
+(defun ptemplate--make-ignore-regex (regexes)
+  "Make delete-regex for `ptemplate-ignore'.
+REGEXES is a list of strings as described there."
+  (string-join
+   (cl-loop for regex in regexes collect
+            (if (string-prefix-p "/" regex)
+                (ptemplate--make-path-regex
+                 (concat "." (string-remove-suffix "/" regex)))
+              (ptemplate--make-basename-regex regex)))
+   "\\|"))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
@@ -559,7 +570,7 @@ that all files contained within them retain their original
 files haven't been remapped will still be created.
 
 See also `ptemplate-remap-rec'."
-  (ptemplate--prune-files
+  (ptemplate--prune-template-files
    (ptemplate--unix-to-native-path
     (format "\\`%s/?\\'" (ptemplate--normalize-user-path src))))
   (ptemplate-map src target))
@@ -582,6 +593,14 @@ Useful if a single template expansion needs to be mapped to two
 files, in the :finalize block of `ptemplate!'."
   (copy-file (concat ptemplate-target-directory src)
              (concat ptemplate-target-directory target)))
+
+(defun ptemplate-ignore (&rest regexes)
+  "REGEXES specify template files to ignore.
+See `ptemplate--make-basename-regex' for details. As a special
+case, if a REGEX starts with /, it is interpreted as a template
+path to ignore \(see `ptemplate--make-path-regex')."
+  (ptemplate--prune-template-files
+   (ptemplate--make-ignore-regex regexes)))
 
 ;; NOTE: ;;;###autoload is unnecessary here, as ptemplate! is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
@@ -615,11 +634,8 @@ would get evaluated in sequence. Supported keyword are:
              let-bound outside of `ptemplate!' and used in
              snippets.
 
-:ignore Regexes specifying file basenames to ignore. See
-        `ptemplate--make-basename-regex' for details. If an
-        argument to this keywords starts with /, it is
-        interpreted as a template path to ignore \(see
-        `ptemplate--make-path-regex').
+:ignore See `ptemplate-ignore'. Files are pruned before
+        :init.
 
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
@@ -632,7 +648,7 @@ readable."
         (after-copy-eval)
         (finalize-eval)
         (snippet-env)
-        (ignored-file-regexes))
+        (ignore-regexes))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
@@ -642,16 +658,12 @@ readable."
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
           (:snippet-env (push arg snippet-env))
-          (:ignore (push (if (string-prefix-p "/" arg)
-                             (ptemplate--make-path-regex
-                              (concat "." (string-remove-suffix "/" arg)))
-                           (ptemplate--make-basename-regex arg))
-                         ignored-file-regexes)))))
+          (:ignore (push arg ignore-regexes)))))
     (macroexp-progn
      (nconc
-      (when ignored-file-regexes
-        (let ((delete-regex (string-join ignored-file-regexes "\\|")))
-          `((ptemplate--prune-files ,delete-regex))))
+      (when ignore-regexes
+        `((ptemplate--prune-template-files
+           ,(ptemplate--make-ignore-regex ignore-regexes))))
       (nreverse result)
       (when before-yas-eval
         `((add-hook 'ptemplate--before-snippet-hook
