@@ -74,6 +74,12 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 
 For details, see `M-x describe-function ptemplate!`.
 
+Some other useful functions include:
+- `ptemplate-map`: map one template file to another in the target
+- `ptemplate-remap`: remap template files
+- `ptemplate-remap-rec`: recursively remap template directories
+- `ptemplate-copy-target`: copy files from one target location to another
+
 # Configuration
 ## ptemplate-template-prompt-function
 This variable specifies which function to use for prompting templates. It can be
