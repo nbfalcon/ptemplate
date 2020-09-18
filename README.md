@@ -70,6 +70,9 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :before-snippets FORMs to run before expanding yasnippets
 - :after-copy FORMs to run after all files have been copied
 - :finalize FORMs to run after expansion finishes.
+- :snippet-env Variables to make available to yasnippets.
+- :snippet-let Variables to let*-bind around the `ptemplate!` block + to add in
+  yasnippets.
 - :ignore Regular expressions of filenames to ignore or paths to ignore.
 - :subdir Make some template directories appear as if they were in its root.
 

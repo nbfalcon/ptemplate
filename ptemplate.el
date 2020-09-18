@@ -51,7 +51,7 @@ Template shall be a path of the form \"category/type\". Returns a
 list of full paths to the template directory specified by
 TEMPLATE. Returns the empty list if TEMPLATE cannot be found."
   (let ((template (file-name-as-directory template))
-        (result))
+        result)
     (dolist (dir ptemplate-template-dirs)
       (let ((template-dir (concat (file-name-as-directory dir) template)))
         (when (file-directory-p template-dir)
@@ -709,7 +709,7 @@ would get evaluated in sequence. Supported keyword are:
 
 :finalize FORMs to run after expansion finishes.
 
-:snippet-env variables to make available in snippets. Their
+:snippet-env VARIABLES to make available in snippets. Their
              values are examined at the end of `ptemplate!' and
              stored. Each element after :env shall be a symbol or
              a list of the form (SYMBOL VALUEFORM), like in
@@ -717,7 +717,15 @@ would get evaluated in sequence. Supported keyword are:
              symbol is specified, its value is taken from the
              current environment. This way, variables can be
              let-bound outside of `ptemplate!' and used in
-             snippets.
+             snippets. Leaving out VALUEFORM makes it nil.
+
+:snippet-let VARIABLES to `let*'-bind around the `ptemplate!'
+             block and to include in the snippet environment.
+             Each ARG shall be a list (SYMBOL VALUEFORM) or just
+             SYMBOL. If specified as SYMBOL, the variable is
+             initialized to nil. Otherwise, VALUEFORM is used to
+             initialize the variable. Note that the value of
+             snippet-let blocks can be changed in :init.
 
 :ignore See `ptemplate-ignore'. Files are pruned before
         :init.
@@ -737,6 +745,7 @@ readable."
         (after-copy-eval)
         (finalize-eval)
         (snippet-env)
+        (around-let)
         (ignore-regexes)
         (include-dirs))
     (dolist (arg args)
@@ -748,13 +757,16 @@ readable."
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
           (:snippet-env (push arg snippet-env))
+          (:snippet-let (push (if (consp arg) (car arg) arg) snippet-env)
+                        (push arg around-let))
           (:ignore (push arg ignore-regexes))
           (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
                      (push (concat (ptemplate--unix-to-native-path "/")
                                    simplified-path)
                            ignore-regexes)
                      (push simplified-path include-dirs))))))
-    (macroexp-progn
+    (macroexp-let*
+     (nreverse around-let)
      (nconc
       (when ignore-regexes
         `((ptemplate--prune-template-files
