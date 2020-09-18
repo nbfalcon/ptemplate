@@ -75,6 +75,8 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
   yasnippets.
 - :ignore Regular expressions of filenames to ignore or paths to ignore.
 - :subdir Make some template directories appear as if they were in its root.
+- :remap Remap SRC to TARGET in (SRC TARGET) using `ptemplate-remap`.
+- :remap-rec Like :remap, but use `ptemplate-remap-rec` instead.
 
 For details, see `M-x describe-function ptemplate!`.
 

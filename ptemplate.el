@@ -744,6 +744,12 @@ would get evaluated in sequence. Supported keyword are:
         root. Practically, this means not adding its files and
         including it. Evaluated before :init.
 
+:remap ARG shall be of the FORM (SRC TARGET); calls
+       `ptemplate-remap' on the results of evaluating SRC and
+       TARGET. Run after :init.
+
+:remap-rec Like :remap, but call `ptemplate-remap-rec' instead.
+
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
 modifying hooks directly, ...). However, you should still use
@@ -757,7 +763,8 @@ readable."
         (snippet-env)
         (around-let)
         (ignore-regexes)
-        (include-dirs))
+        (include-dirs)
+        (remaps))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
@@ -774,7 +781,10 @@ readable."
                      (push (concat (ptemplate--unix-to-native-path "/")
                                    simplified-path)
                            ignore-regexes)
-                     (push simplified-path include-dirs))))))
+                     (push simplified-path include-dirs)))
+          (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remaps))
+          (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
+                            remaps)))))
     (macroexp-let*
      (nreverse around-let)
      (macroexp-progn
@@ -788,6 +798,7 @@ readable."
             ,@(cl-loop for dir in (nreverse include-dirs)
                        collect (list #'ptemplate-source dir)))))
        (nreverse init-forms)
+       (nreverse remaps)
        (when before-yas-eval
          `((add-hook 'ptemplate--before-snippet-hook
                      (lambda () "Run before expanding snippets."
