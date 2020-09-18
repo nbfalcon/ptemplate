@@ -71,14 +71,21 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :after-copy FORMs to run after all files have been copied
 - :finalize FORMs to run after expansion finishes.
 - :ignore Regular expressions of filenames to ignore or paths to ignore.
+- :subdir Make some template directories appear as if they were in its root.
 
 For details, see `M-x describe-function ptemplate!`.
 
 Some other useful functions include:
-- `ptemplate-map`: map one template file to another in the target
+- `ptemplate-map`: map one template file to some file in the target
 - `ptemplate-remap`: remap template files
 - `ptemplate-remap-rec`: recursively remap template directories
 - `ptemplate-copy-target`: copy files from one target location to another
+- `ptemplate-include`: add all files in DIRS as if they were part of the
+  template, files mapped previously taking precedence
+- `ptemplate-include-override`: like the above, but files in DIRS take
+  precedence
+- `ptemplate-target`: make a path from expansion target + dir
+- `ptemplate-source`: make a path from template directory + dir
 
 # Configuration
 ## ptemplate-template-prompt-function

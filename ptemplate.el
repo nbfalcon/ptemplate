@@ -395,27 +395,39 @@ platform's equivalent."
 The list is a string of paths beginning with ./ \(or the
 platform's equivalent) of all files and directories within it.
 Unlike `directory-files-recursively', directories end in the
-platform's directory separator."
+platform's directory separator. \".\" and \"..\" are not
+included."
   (setq path (file-name-as-directory path))
   (cl-loop for file in (let ((default-directory path))
                          (directory-files-recursively "." "" t))
            collect (if (file-directory-p (concat path file))
                        (file-name-as-directory file) file)))
 
+(defun ptemplate--auto-map-file (file)
+  "Map FILE to its target, removing special extensions.
+See `ptemplate--template-files'."
+  (if (member (file-name-extension file) '("keep" "yas"))
+      (file-name-sans-extension file)
+    file))
+
+(defun ptemplate--list-template-dir-files (path)
+  "`ptemplate--list-template-files', but include .ptemplate.el.
+PATH specifies the path to examine."
+  (cl-loop for file in (ptemplate--dir-find-relative path)
+           unless (string-suffix-p ".nocopy" file)
+           collect (cons file (ptemplate--auto-map-file file))))
+
 (defun ptemplate--list-template-files (path)
   "Find all files in ptemplate PATH.
 Associates each file with its target \(alist (SRC . TARGET)),
 removing the extension of special files \(e.g. .nocopy, .yas).
-Directories are included."
-  (cl-loop for file in (ptemplate--dir-find-relative path)
-           unless
-           (string-match-p
-            (ptemplate--unix-to-native-path
-             (rx "./" (or (: (* anything) ".nocopy" (? ?/))
-                          (: ".ptemplate.el" (? ?c))) eos)) file)
-           collect (cons file
-                         (if (string-match-p "\\.\\(?:keep\\|yas\\)\\'" file)
-                             (file-name-sans-extension file) file))))
+Directories are included. .ptemplate.el and .ptemplate.elc are
+removed."
+  (cl-delete-if
+   (lambda (f)
+     (string-match-p
+      (ptemplate--unix-to-native-path "\\`\\./\\.ptemplate\\.elc?") (car f)))
+   (ptemplate--list-template-dir-files path)))
 
 ;;;###autoload
 (defun ptemplate-expand-template (source target)
@@ -433,6 +445,7 @@ If called interactively, SOURCE is prompted using
     ;; necessarily with a slash at the end), so do this buffer
     ;; (file-name-as-directory).
     (user-error "Directory %s already exists" target))
+  ;; empty templates should still create a directory.
   (make-directory target t)
 
   (setq target (file-name-as-directory target))
@@ -520,6 +533,38 @@ caveats apply as for `ptemplate--make-basename-regex'."
   (concat "\\`" (regexp-quote (ptemplate--unix-to-native-path path))
           (ptemplate--unix-to-native-path "\\(?:/\\|\\'\\)")))
 
+(defun ptemplate--simplify-user-path (path)
+  "Make PATH a template-relative path without any prefix.
+PATH's slashes are converted to the native directory separator
+and prefixes like ./ and / are removed. Note that directory
+separator conversion is not performed."
+  (declare (side-effect-free t))
+  (let* ((paths (split-string path "/"))
+         (paths (cl-delete-if #'string-empty-p paths))
+         (paths (cl-delete-if (apply-partially #'string= ".") paths)))
+    (string-join paths "/")))
+
+(defun ptemplate--normalize-user-path (path)
+  "Make PATH usable to query template files.
+PATH shall be a user-supplied template source/target relative
+PATH, which will be normalized and whose directory separators
+will be converted to the platform's native ones."
+  (declare (side-effect-free t))
+  (ptemplate--unix-to-native-path
+   (concat "./" (ptemplate--simplify-user-path path))))
+
+(defun ptemplate--make-ignore-regex (regexes)
+  "Make delete-regex for `ptemplate-ignore'.
+REGEXES is a list of strings as described there."
+  (declare (side-effect-free t))
+  (string-join
+   (cl-loop for regex in regexes collect
+            (if (string-prefix-p "/" regex)
+                (ptemplate--make-path-regex
+                 (concat "." (string-remove-suffix "/" regex)))
+              (ptemplate--make-basename-regex regex)))
+   "\\|"))
+
 (defun ptemplate--prune-template-files (regex)
   "Remove all template whose source files match REGEX.
 This function is only supposed to be called from `ptemplate!'."
@@ -528,24 +573,40 @@ This function is only supposed to be called from `ptemplate!'."
          (lambda (src-targetf) (string-match-p regex (car src-targetf)))
          ptemplate--template-files)))
 
-(defun ptemplate--normalize-user-path (path)
-  "Make PATH start with \"./\".
-PATH shall be a template-relative file."
-  (let ((path (string-remove-prefix "/" path)))
-    (if (string-prefix-p (ptemplate--unix-to-native-path "./") path)
-        path
-      (concat (ptemplate--unix-to-native-path "./") path))))
+(defun ptemplate--prune-duplicate-files (files dup-cb)
+  "Find and remove duplicates in FILES.
+FILES shall be a list of template file mappings \(see
+`ptemplate--template-files'). If a duplicate is encountered, call
+DUP-CB using `funcall' and pass to it the (SRC . TARGET) cons
+that was encountered later.
 
-(defun ptemplate--make-ignore-regex (regexes)
-  "Make delete-regex for `ptemplate-ignore'.
-REGEXES is a list of strings as described there."
-  (string-join
-   (cl-loop for regex in regexes collect
-            (if (string-prefix-p "/" regex)
-                (ptemplate--make-path-regex
-                 (concat "." (string-remove-suffix "/" regex)))
-              (ptemplate--make-basename-regex regex)))
-   "\\|"))
+Return a new list of mappings with all duplicates removed.
+
+This function uses a hashmap and is as such efficient for large
+lists, but doesn't use constant memory."
+  ;; hashmap of all target files mapped to `t'
+  (cl-loop with known-targets = (make-hash-table :test 'equal)
+           for file in files for target = (cdr file)
+           ;; already encountered? call DUP-CB
+           if (gethash target known-targets) do (funcall dup-cb file)
+           ;; remember it as encountered and collect it, since it was first
+           else do (puthash target t known-targets) and collect file))
+
+(defun ptemplate--override-files (base-files override)
+  "Override all mappings in BASE-FILES with those in OVERRIDE.
+Both of them shall be mappings like `ptemplate--template-files'.
+BASE-FILES and OVERRIDE may be altered destructively.
+
+Return the new mapping alist, with files from OVERRIDE having
+taken precedence.
+
+Note that because duplicate mappings might silently be deleted,
+you should call `ptemplate--prune-duplicate-files' with a warning
+callback first, to report such duplicates to the user."
+  (ptemplate--prune-duplicate-files
+   (nconc override base-files)
+   ;; duplicates are normal (mappings from OVERRIDE).
+   #'ignore))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
@@ -559,10 +620,9 @@ TARGET is a path relative to the expansion target."
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
 SRC shall be a template-relative path separated by slashes
-\(conversion is done for windows). Using . or .. in SRC is not
-allowed. TARGET shall be the destination, relative to the
-expansion target. See `ptemplate--normalize-user-path' for SRC
-name rules.
+\(conversion is done for windows). Using .. in SRC will not work.
+TARGET shall be the destination, relative to the expansion
+target. See `ptemplate--normalize-user-path' for SRC name rules.
 
 Note that directories are not recursively remapped, which means
 that all files contained within them retain their original
@@ -602,6 +662,31 @@ path to ignore \(see `ptemplate--make-path-regex')."
   (ptemplate--prune-template-files
    (ptemplate--make-ignore-regex regexes)))
 
+(defun ptemplate-include (&rest dirs)
+  "Use all files in DIRS for expansion.
+The files are added as if they were part of the current template
+being expanded, except that .ptemplate.el and .ptemplate.elc are
+valid filenames and are not interpreted.
+
+The files defined in the template take precedence. To get the
+other behaviour, use `ptemplate-include-override' instead."
+  (ptemplate--override-files (mapcan #'ptemplate--list-template-dir-files dirs)
+                             ptemplate--template-files))
+
+(defun ptemplate-include-override (&rest dirs)
+  "Like `ptemplate-include', but files in DIRS override."
+  (ptemplate--override-files
+   ptemplate--template-files
+   (mapcan #'ptemplate--list-template-dir-files dirs)))
+
+(defun ptemplate-source (dir)
+  "Return DIR as if relative to `ptemplate-source-directory'."
+  (concat ptemplate-source-directory dir))
+
+(defun ptemplate-target (dir)
+  "Return DIR as if relative to `ptemplate-target-directory'."
+  (concat ptemplate-target-directory dir))
+
 ;; NOTE: ;;;###autoload is unnecessary here, as ptemplate! is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
 ;; `ptemplate-expand-template', at which point `ptemplate' is already loaded.
@@ -637,34 +722,49 @@ would get evaluated in sequence. Supported keyword are:
 :ignore See `ptemplate-ignore'. Files are pruned before
         :init.
 
+:subdir Make some template-relative paths appear to be in the
+        root. Practically, this means not adding its files and
+        including it. Evaluated before :init.
+
 Note that because .ptemplate.el files execute arbitrary code, you
 could write them entirely without using this macro (e.g. by
 modifying hooks directly, ...). However, you should still use
 `ptemplate!', as this makes templates more future-proof and
 readable."
   (let ((cur-keyword :init)
-        (result)
+        (init-forms)
         (before-yas-eval)
         (after-copy-eval)
         (finalize-eval)
         (snippet-env)
-        (ignore-regexes))
+        (ignore-regexes)
+        (include-dirs))
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
         (pcase cur-keyword
-          (:init (push arg result))
+          (:init (push arg init-forms))
           (:before-snippets (push arg before-yas-eval))
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
           (:snippet-env (push arg snippet-env))
-          (:ignore (push arg ignore-regexes)))))
+          (:ignore (push arg ignore-regexes))
+          (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
+                     (push (concat (ptemplate--unix-to-native-path "/")
+                                   simplified-path)
+                           ignore-regexes)
+                     (push simplified-path include-dirs))))))
     (macroexp-progn
      (nconc
       (when ignore-regexes
         `((ptemplate--prune-template-files
            ,(ptemplate--make-ignore-regex ignore-regexes))))
-      (nreverse result)
+      (when include-dirs
+        ;; include dirs specified first take precedence
+        `((ptemplate-include
+           ,@(cl-loop for dir in (nreverse include-dirs)
+                      collect (list #'ptemplate-source dir)))))
+      (nreverse init-forms)
       (when before-yas-eval
         `((add-hook 'ptemplate--before-snippet-hook
                     (lambda () "Run before expanding snippets."
