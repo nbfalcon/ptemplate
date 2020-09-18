@@ -256,8 +256,7 @@ This mode is only for keybindings."
   (require 'yasnippet)
   (declare-function yas-minor-mode "yasnippet" (&optional arg))
   (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
-  ;; the snippet chain is a cons abused as a pointer: car is never used, while
-  ;; cdr is modified; the cons can be shared between multiple buffers, sharing
+
   ;; the actual payload (which is always in the cdr). (See
   ;; `ptemplate--snippet-chain' for details).
   (let ((next (pop (cdr ptemplate--snippet-chain))))
@@ -268,22 +267,24 @@ This mode is only for keybindings."
       (let ((oldbuf (current-buffer))
             (next-file (cdr next))
             (source-file (car next)))
-        (find-file next-file)
+        (with-current-buffer (find-file-noselect next-file)
+          ;; Inherit snippet chain variables. NOTE: `ptemplate--snippet-chain',
+          ;; ... are `defvar-local', so need not be made buffer-local.
+          (dolist (sym '(ptemplate--snippet-chain
+                         ptemplate--snippet-chain-env
+                         ptemplate--snippet-chain-finalize-hook))
+            (set sym (buffer-local-value sym oldbuf)))
 
-        ;; Inherit snippet chain variables. NOTE: `ptemplate--snippet-chain',
-        ;; ... are `defvar-local', so need not be made buffer-local.
-        (dolist (sym '(ptemplate--snippet-chain
-                       ptemplate--snippet-chain-env
-                       ptemplate--snippet-chain-finalize-hook))
-          (set sym (buffer-local-value sym oldbuf)))
+          ;; setup snippet env
+          (cl-loop for (sym . val) in ptemplate--snippet-chain-env do
+                   (set (make-local-variable sym) val))
 
-        ;; set env
-        (cl-loop for (sym . val) in ptemplate--snippet-chain-env do
-                 (set (make-local-variable sym) val))
+          ;; "yasnippet needs a properly set-up `yas-minor-mode'"
+          (yas-minor-mode 1)
+          (yas-expand-snippet (ptemplate--read-file source-file) nil nil)
 
-        (ptemplate-snippet-chain-mode 1)
-        (yas-minor-mode 1)
-        (yas-expand-snippet (ptemplate--read-file source-file)))))))
+          (ptemplate-snippet-chain-mode 1)
+          (pop-to-buffer-same-window (current-buffer))))))))
 
 (defun ptemplate-snippet-chain-next ()
   "Save the current buffer and continue in the snippet chain.
@@ -767,38 +768,39 @@ readable."
                      (push simplified-path include-dirs))))))
     (macroexp-let*
      (nreverse around-let)
-     (nconc
-      (when ignore-regexes
-        `((ptemplate--prune-template-files
-           ,(ptemplate--make-ignore-regex ignore-regexes))))
-      (when include-dirs
-        ;; include dirs specified first take precedence
-        `((ptemplate-include
-           ,@(cl-loop for dir in (nreverse include-dirs)
-                      collect (list #'ptemplate-source dir)))))
-      (nreverse init-forms)
-      (when before-yas-eval
-        `((add-hook 'ptemplate--before-snippet-hook
-                    (lambda () "Run before expanding snippets."
-                      ,@(nreverse before-yas-eval)))))
-      (when after-copy-eval
-        `((add-hook 'ptemplate--after-copy-hook
-                    (lambda () "Run after copying files."
-                      ,@(nreverse after-copy-eval)))))
-      (when finalize-eval
-        `((add-hook 'ptemplate--finalize-hook
-                    (lambda () "Run after template expansion finishes."
-                      ,@(nreverse finalize-eval)))))
-      (when snippet-env
-        `((setq
-           ptemplate--snippet-env
-           (nconc
+     (macroexp-progn
+      (nconc
+       (when ignore-regexes
+         `((ptemplate--prune-template-files
+            ,(ptemplate--make-ignore-regex ignore-regexes))))
+       (when include-dirs
+         ;; include dirs specified first take precedence
+         `((ptemplate-include
+            ,@(cl-loop for dir in (nreverse include-dirs)
+                       collect (list #'ptemplate-source dir)))))
+       (nreverse init-forms)
+       (when before-yas-eval
+         `((add-hook 'ptemplate--before-snippet-hook
+                     (lambda () "Run before expanding snippets."
+                       ,@(nreverse before-yas-eval)))))
+       (when after-copy-eval
+         `((add-hook 'ptemplate--after-copy-hook
+                     (lambda () "Run after copying files."
+                       ,@(nreverse after-copy-eval)))))
+       (when finalize-eval
+         `((add-hook 'ptemplate--finalize-hook
+                     (lambda () "Run after template expansion finishes."
+                       ,@(nreverse finalize-eval)))))
+       (when snippet-env
+         `((setq
             ptemplate--snippet-env
-            (list ,@(cl-loop
-                     for var in snippet-env collect
-                     (if (listp var)
-                         (list #'cons (macroexp-quote (car var)) (cadr var))
-                       `(cons ',var ,var))))))))))))
+            (nconc
+             ptemplate--snippet-env
+             (list ,@(cl-loop
+                      for var in snippet-env collect
+                      (if (listp var)
+                          (list #'cons (macroexp-quote (car var)) (cadr var))
+                        `(cons ',var ,var)))))))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
