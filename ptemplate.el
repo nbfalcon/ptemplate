@@ -441,11 +441,6 @@ If called interactively, SOURCE is prompted using
 `default-directory'."
   (interactive (let ((template (funcall ptemplate-template-prompt-function)))
                  (list template (ptemplate--prompt-target template))))
-  (when (file-directory-p target)
-    ;; NOTE: the error message should mention the user-supplied target (not
-    ;; necessarily with a slash at the end), so do this buffer
-    ;; (file-name-as-directory).
-    (user-error "Directory %s already exists" target))
   ;; empty templates should still create a directory.
   (make-directory target t)
 
@@ -505,6 +500,20 @@ If called interactively, SOURCE is prompted using
                          (ptemplate-target-directory . ,ptemplate-target-directory))
                        ptemplate--snippet-env)
                 ptemplate--finalize-hook)))))
+
+(defun ptemplate-new-project (source target)
+  "Create a new project based on a template.
+Like `ptemplate-expand-template', but ensure that TARGET doesn't
+exist. SOURCE and TARGET are passed to
+`ptemplate-expand-template' unmodified."
+  (interactive (let ((template (funcall ptemplate-template-prompt-function)))
+                 (list template (ptemplate--prompt-target template))))
+  (when (file-directory-p target)
+    ;; NOTE: the error message should mention the user-supplied target (not
+    ;; necessarily with a slash at the end), so do this buffer
+    ;; (file-name-as-directory).
+    (user-error "Directory %s already exists" target))
+  (ptemplate-expand-template source target))
 
 ;;; auxiliary functions for .ptemplate.el API
 (defun ptemplate--make-basename-regex (file)
