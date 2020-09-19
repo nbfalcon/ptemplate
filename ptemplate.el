@@ -266,7 +266,12 @@ Variables are set buffer-locally."
 
   ;; the actual payload (which is always in the cdr). (See
   ;; `ptemplate--snippet-chain' for details).
-  (let ((next (pop (cdr ptemplate--snippet-chain))))
+  (let* ((realchain (cdr ptemplate--snippet-chain))
+         (next (car realchain)))
+    (when realchain
+      ;; if the snippet chain is empty, pop fails.
+      (pop (cdr ptemplate--snippet-chain)))
+
     (cond
      ((null next) (run-hooks 'ptemplate--snippet-chain-finalize-hook))
      ((bufferp next) (switch-to-buffer next))
@@ -296,9 +301,34 @@ The buffer is killed after calling this. If the snippet chain is
 empty, do nothing."
   (interactive)
   (save-buffer 0)
-  (let ((old-buf (current-buffer)))
-    (ptemplate--snippet-chain-continue)
-    (kill-buffer old-buf)))
+  (if (cdr ptemplate--snippet-chain)
+      (let ((old-buf (current-buffer)))
+        ;; mitigate "flickering" to old buffer; first, acquire the new one and
+        ;; then kill the old one.
+        (ptemplate--snippet-chain-continue)
+        (kill-buffer old-buf))
+    ;; EDGE CASE: if no buffer follows, `ptemplate--finalize-hook' must be
+    ;; run, but at the *very* end, meaning this buffer must already be dead by
+    ;; then and nothing must happen after. The following issue prompted this:
+    ;; if the last snippet chain buffer's target file is opened in `find-file'
+    ;; in `ptemplate!''s :finalize block, it would not show up, as `find-file'
+    ;; will find the snippet chain buffer, which gets killed. (in: C/C++ meson
+    ;; project).
+    (let ((finalize ptemplate--snippet-chain-finalize-hook)
+          (env ptemplate--snippet-chain-env))
+      (kill-buffer)
+      ;; we cannot use `ptemplate--setup-snippet-env', since this isn't a
+      ;; snippet chain buffer, so we must resort to abusing `cl-progv'.
+      (cl-progv (mapcar #'car env) (mapcar #'cdr env)
+        ;; override in the context of the *new* buffer; the previous had been
+        ;; killed, and it isn't part of the snippet chain, so
+        ;; `ptemplate--snippet-chain-finalize-hook' is nil for it
+        ;; (buffer-local). This means that the hook won't run, so override it
+        ;; *again*, buffer-locally, for the pre-snippet-chain buffer. This is
+        ;; horrible, but luckily confined to the snippet-chain subsystem.
+        (let ((ptemplate--snippet-chain-finalize-hook finalize))
+          (run-hooks )
+          (ptemplate--snippet-chain-continue))))))
 
 (defun ptemplate-snippet-chain-later ()
   "Save the current buffer to be expanded later.
@@ -507,13 +537,14 @@ If called interactively, SOURCE is prompted using
 
              finally do
              (run-hooks 'ptemplate--before-snippet-hook)
-             (when yasnippets
+             (if yasnippets
                (ptemplate--snippet-chain-start
                 yasnippets
                 (nconc `((ptemplate-source-directory . ,ptemplate-source-directory)
                          (ptemplate-target-directory . ,ptemplate-target-directory))
                        ptemplate--snippet-env)
-                ptemplate--finalize-hook)))))
+                ptemplate--finalize-hook)
+               (run-hooks 'ptemplate--finalize-hook)))))
 
 (defun ptemplate-new-project (source target)
   "Create a new project based on a template.
