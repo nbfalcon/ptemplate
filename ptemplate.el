@@ -327,7 +327,6 @@ empty, do nothing."
         ;; *again*, buffer-locally, for the pre-snippet-chain buffer. This is
         ;; horrible, but luckily confined to the snippet-chain subsystem.
         (let ((ptemplate--snippet-chain-finalize-hook finalize))
-          (run-hooks )
           (ptemplate--snippet-chain-continue))))))
 
 (defun ptemplate-snippet-chain-later ()
