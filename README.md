@@ -48,6 +48,13 @@ expansion of the current snippet and look at the others meantime.
 The keybindings can be modified by customizing
 `ptemplate-snippet-chain-mode-map`.
 
+### \*.autoyas
+Files ending in .autoyas are expanded headlessly: all snippet-chain variables
+are made available to them, but they are not added to the snippet chain, instead
+expanded during the copy-phase without human interaction. If you want to
+interpolate certain files by leveraging yasnippet, but don't want the user to
+fill in any fields, these types of snippets are useful.
+
 ### \*.keep
 .keep files are copied like normal files, but without the .keep extension. Name
 files this way if you need to override ptemplate's special file handling for

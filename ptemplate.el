@@ -251,6 +251,13 @@ This mode is only for keybindings."
             (define-key map (kbd "C-c C-l") #'ptemplate-snippet-chain-later)
             map))
 
+(defun ptemplate--setup-snippet-env (snippet-env)
+  "Set all \(SYMBOL . VALUE) pairs in SNIPPET-ENV.
+Variables are set buffer-locally."
+  ;; setup snippet env
+  (cl-loop for (sym . val) in snippet-env do
+           (set (make-local-variable sym) val)))
+
 (defun ptemplate--snippet-chain-continue ()
   "Make the next snippt/buffer in the snippet chain current."
   (require 'yasnippet)
@@ -274,10 +281,7 @@ This mode is only for keybindings."
                          ptemplate--snippet-chain-env
                          ptemplate--snippet-chain-finalize-hook))
             (set sym (buffer-local-value sym oldbuf)))
-
-          ;; setup snippet env
-          (cl-loop for (sym . val) in ptemplate--snippet-chain-env do
-                   (set (make-local-variable sym) val))
+          (ptemplate--setup-snippet-env ptemplate--snippet-chain-env)
 
           ;; "yasnippet needs a properly set-up `yas-minor-mode'"
           (yas-minor-mode 1)
@@ -369,10 +373,6 @@ platform-specific directory separator, so you can use this with
 (defvar-local ptemplate-source-directory nil
   "Source directory of ptemplate expansion.
 Akin to `ptemplate-source-directory'.")
-;;; (ptemplate--yasnippet-p :: String -> Bool)
-(defun ptemplate--yasnippet-p (file)
-  "Check if FILE has a yasnippet extension and nil otherwise."
-  (string-suffix-p ".yas" file))
 
 (defvar ptemplate--template-files nil
   "Alist mapping template source files to their targets.
@@ -407,7 +407,7 @@ included."
 (defun ptemplate--auto-map-file (file)
   "Map FILE to its target, removing special extensions.
 See `ptemplate--template-files'."
-  (if (member (file-name-extension file) '("keep" "yas"))
+  (if (member (file-name-extension file) '("keep" "yas" "autoyas"))
       (file-name-sans-extension file)
     file))
 
@@ -429,6 +429,17 @@ removed."
      (string-match-p
       (ptemplate--unix-to-native-path "\\`\\./\\.ptemplate\\.elc?") (car f)))
    (ptemplate--list-template-dir-files path)))
+
+(defun ptemplate--autoyas-expand (src target &optional expand-env)
+  "Expand yasnippet in file SRC to file TARGET.
+Expansion is done \"headless\", that is without any UI.
+EXPAND-ENV is an environment alist like in
+`ptemplate--snippet-env'."
+  (with-temp-file target
+    (ptemplate--setup-snippet-env expand-env)
+
+    (yas-minor-mode 1)
+    (yas-expand-snippet (ptemplate--read-file src))))
 
 ;;;###autoload
 (defun ptemplate-expand-template (source target)
@@ -470,6 +481,7 @@ If called interactively, SOURCE is prompted using
 
     (cl-loop for (src . targetf) in ptemplate--template-files
              for realsrc = (concat source src)
+             for realtarget = (concat target targetf)
              ;; all files in `ptemplate--list-template-files' shall end in a
              ;; slash.
              for dir? = (directory-name-p realsrc)
@@ -486,10 +498,12 @@ If called interactively, SOURCE is prompted using
               t)
 
              unless dir?
-             if (ptemplate--yasnippet-p src)
-             collect (cons realsrc (concat target targetf)) into yasnippets
-             ;;; copy files
-             else do (copy-file realsrc (concat target targetf))
+             if (string-suffix-p ".yas" src)
+             collect (cons realsrc realtarget) into yasnippets
+             else if (string-suffix-p ".autoyas" src)
+             do (ptemplate--autoyas-expand realsrc realtarget
+                                           ptemplate--snippet-env)
+             else do (copy-file realsrc realtarget)
 
              finally do
              (run-hooks 'ptemplate--before-snippet-hook)
