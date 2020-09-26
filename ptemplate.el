@@ -37,6 +37,10 @@
 (require 'cl-lib)
 (require 'subr-x)
 
+;;; `declare-function'
+(declare-function yas-minor-mode "yasnippet" (&optional arg))
+(declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
+
 ;;; snippet-chain subsystem
 (defvar-local ptemplate--snippet-chain nil
   "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
@@ -109,10 +113,6 @@ Variables are set buffer-locally."
 
 (defun ptemplate--snippet-chain-continue ()
   "Make the next snippt/buffer in the snippet chain current."
-  (require 'yasnippet)
-  (declare-function yas-minor-mode "yasnippet" (&optional arg))
-  (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
-
   ;; the actual payload (which is always in the cdr). (See
   ;; `ptemplate--snippet-chain' for details).
   (let* ((realchain (cdr ptemplate--snippet-chain))
@@ -128,6 +128,7 @@ Variables are set buffer-locally."
       (let ((oldbuf (current-buffer))
             (next-file (cdr next))
             (source-file (car next)))
+        (require 'yasnippet)
         (with-current-buffer (find-file-noselect next-file)
           ;; Inherit snippet chain variables. NOTE: `ptemplate--snippet-chain',
           ;; ... are `defvar-local', so need not be made buffer-local.
@@ -262,6 +263,8 @@ Expansion is done \"headless\", that is without any UI.
 EXPAND-ENV is an environment alist like in
 `ptemplate--snippet-env'."
   (with-temp-file target
+    (require 'yasnippet)
+
     (ptemplate--setup-snippet-env expand-env)
 
     (yas-minor-mode 1)
