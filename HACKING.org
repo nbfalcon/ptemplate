@@ -1,0 +1,64 @@
+* About
+The ptemplate project has grown very large, and as such some documentation is
+needed to facilitate hacking on it in the future, when I'll have forgotten most
+details about internals, which this file tries to provide.
+
+* Snippet chain
+The snippet chain is a relatively small subsystem of ptemplate, around 150 lines
+as of writing (mainly due to comments) and is not dependent on the rest of
+ptemplate.
+
+One feature, as stated in the README, is the interactive expansion of file
+snippets. This is facilitated with a "snippet chain": it is a set of snippet
+files mapped to their targets. Pressing C-c C-c moves forward, ... (see the
+README for that).
+
+However, there is a problem: the snippet chain supports saving snippets for
+later and ptemplate must support expanding multiple templates at once, so the
+snippet alist ("snippet chain") must be shared between buffers. This cannot be
+done with global variables however, as that would clash with ptemplate's
+multiple-template expansion support.
+
+The sharing is done trough a set of global variables that are always
+buffer-locally bound. The snippet chain alist itself should be mutably shared,
+and this is realized by having a cons of the form (\'ptemplate-snippet-chain .
+ALIST) be setup in each new buffer with the value taken from the previous one,
+or =ptemplate--snippet-chain-start=. The =cdr= of this cons is modified, and for
+some reason those modifications are reflected everywhere else. All other
+variables are shared by =setq='ing them up the same way, but they can be
+read-only, so such tricks aren't necessary. If Emacs can somehow operate without
+a current buffer, this approach might fall apart.
+** Important functions
+*** =ptemplate--snippet-chain-continue=
+This is the core function that advances the snippet chain. It is responsible for
+running the finalize hook.
+*** =ptemplate--snippet-chain-start=
+Starts a snippet chain. Since there is no snippet chain yet, this function
+simply =let=-binds the snippet chain variables to the arguments, overriding their
+current buffer-local values (nil, unless in a snippet chain buffer).
+* Copy context
+To support template inheritance elegantly, the state of some template needs to
+be contained and merged. This is done using a =copy context=, which is a
+structure containing all state needed to expand a template to some destination
+(note that this doesn't mean eval'ing a template once is sufficient: the :init
+block is not contained). Each field in that structure corresponds to some global
+ptemplate variable, defined in the section above. The copy context is generated,
+with additional helper functions, using the macro
+=ptemplate--define-copy-context=.
+** =ptemplate--define-copy-context=
+This macro is responsible for generating most of the copy-context related code,
+for the sake of easier extensibility. Extending it is rather straight-forward:
+add the name of whatever you are trying to generate to the let-form, and add
+another expression at the bottom.
+* ptemplate!
+This macro is mainly useful in .ptemplate.el files. It transforms various :<foo>
+blocks into code that modifies the global template variables, as defined above,
+directly. Most keywords can be implemented using the existing variables and
+hooks, but sometimes new ones need to be added. This can be done as follows:
+
+1. Add them to the section "`ptemplate!` variables"
+2. Add a mapping for them in the copy context (see above, and the already
+   defined ones)
+3. (Make use of it in =ptemplate!= or add a utility function that uses it)
+
+The rest is taken care of by the =ptemplate--define-copy-context= macro.

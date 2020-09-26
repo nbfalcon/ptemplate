@@ -1,3 +1,4 @@
 *.elc
 /.cask/
 /README.html
+/HACKING.html

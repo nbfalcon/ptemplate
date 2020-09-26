@@ -61,8 +61,8 @@ solution needs to be devised to share a buffer local value
 between multiple buffers, and `ptemplate--snippet-chain' works as
 follows: This variable actually stores a cons, the `cdr' of which
 points to the actual snippet chain, as described above, the `car'
-always being ignored. This way (pop (cdr
-`ptemplate--snippet-chain')) modifies it in a way that is shared
+always being ignored. This way \(pop (cdr
+`ptemplate--snippet-chain')\) modifies it in a way that is shared
 between all buffers.
 
 See also `ptemplate--snippet-chain-start'.")
@@ -359,7 +359,8 @@ fields in order \(with `nconc'\), except for those that have the
         (copier (intern (format "%s<-copy" name)))
         (from-env (intern (format "%s<-from-env" name)))
         (to-env (intern (format "%s->to-env" name)))
-        (merge-hooks (intern (format "%s<-merge-hooks" name))))
+        (merge-hooks (intern (format "%s<-merge-hooks" name)))
+        (with-vars-nil (intern (format "%s->with-vars-nil" name))))
     `(progn
        ;;; `ptemplate--copy-context'
        (cl-defstruct (,name (:constructor ,constructor)
@@ -423,7 +424,17 @@ Fields not merged are: %s."
                              (plist-get props :merge-hooks) t)
                          `(mapcan #',(intern (format "%s-%s" name fname)) --contexts--)
                        'nil))))
-       ;;; HACKING: add new to-be generated copy-context functions here
+       (defmacro ,with-vars-nil (&rest body)
+         "`let'-bind the copy context's variables to nil.
+Execute BODY in an environment where the variables to which the
+fields correspond are bound to nil. Return the result of the last
+expression."
+         (backquote
+          (let ,(cl-loop for (_ . props) in fields
+                         for var = (plist-get props :var)
+                         collect var)
+            ,',@body)))
+       ;;; HACKING: add new to-be generated copy-context functions before here
        )))
 
 (ptemplate--define-copy-context ptemplate--copy-context
@@ -488,27 +499,18 @@ trailing slash."
   (setq target (file-name-as-directory target))
   (setq source (file-name-as-directory source))
 
-  (let ((dotptemplate (concat source ".ptemplate.el"))
-        ptemplate--before-snippet-hook
-        ptemplate--finalize-hook
-        ptemplate--snippet-env
-
-        ;; the dotptemplate file should know about source and target.
-        (ptemplate-source-directory source)
-        (ptemplate-target-directory target)
-
-        ;; all template files should start with a ., which makes them source and
-        ;; target agnostic. `concat' source/target + file will yield a correct
-        ;; path because of this. NOTE: we mustn't override `default-directory'
-        ;; for .ptemplate.el, as it should have access to the entire context of
-        ;; the current buffer.
-        (ptemplate--template-files (ptemplate--list-template-files source)))
+  (ptemplate--copy-context->with-vars-nil
+   (let ((dotptemplate (concat source ".ptemplate.el"))
+         ;; the dotptemplate file should know about source and target.
+         (ptemplate-source-directory source)
+         (ptemplate-target-directory target))
+     (setq ptemplate--template-files (ptemplate--list-template-files source))
     ;;; load .ptemplate.el
-    (when (file-exists-p dotptemplate)
-      ;; NOTE: arbitrary code execution
-      (load-file dotptemplate))
+     (when (file-exists-p dotptemplate)
+       ;; NOTE: arbitrary code execution
+       (load-file dotptemplate))
 
-    (ptemplate--copy-context<-from-env)))
+     (ptemplate--copy-context<-from-env))))
 
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
@@ -702,21 +704,22 @@ directory."
 (defun ptemplate-expand-template (source target)
   "Expand the template in SOURCE to TARGET.
 If called interactively, SOURCE is prompted using
-`ptemplate-template-prompt-function'. TARGET is prompted using
-`read-file-name', with the initial directory looked up in
-`ptemplate-workspace-alist' using SOURCE's type, defaulting to
-`ptemplate-default-workspace'. If even that is nil, use
-`default-directory'."
-  (interactive (let ((template (funcall ptemplate-template-prompt-function)))
-                 (list template (ptemplate--prompt-target template))))
+`ptemplate-template-prompt-function' and TARGET using
+`read-file-name'"
+  (interactive (list (funcall ptemplate-template-prompt-function)
+                     (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
     (ptemplate--copy-context->execute context source target)))
 
 (defun ptemplate-new-project (source target)
   "Create a new project based on a template.
 Like `ptemplate-expand-template', but ensure that TARGET doesn't
-exist. SOURCE and TARGET are passed to
-`ptemplate-expand-template' unmodified."
+exist and prompt for TARGET differently. SOURCE and TARGET are
+passed to `ptemplate-expand-template' unmodified. If called
+interactively, TARGET is prompted using `read-file-name', with
+the initial directory looked up in `ptemplate-workspace-alist'
+using SOURCE's type, defaulting to `ptemplate-default-workspace'.
+If even that is nil, use `default-directory'."
   (interactive (let ((template (funcall ptemplate-template-prompt-function)))
                  (list template (ptemplate--prompt-target template))))
   (when (file-directory-p target)

