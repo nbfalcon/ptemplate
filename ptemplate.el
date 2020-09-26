@@ -1037,7 +1037,7 @@ future-proof and readable."
         finalize-eval open-eval open-bg-eval
         snippet-env
         around-let
-        ignore-regexes
+        ignore-regexes ignore-expressions
         inherited-templates
         include-dirs
         remap-eval map-eval)
@@ -1052,9 +1052,11 @@ future-proof and readable."
           (:open (push `(find-file (ptemplate-target ,arg)) open-eval))
           (:open-bg (push `(find-file (ptemplate-target ,arg)) open-bg-eval))
           (:snippet-env (push arg snippet-env))
-          (:snippet-let (push (if (consp arg) (car arg) arg) snippet-env)
-                        (push arg around-let))
-          (:ignore (push arg ignore-regexes))
+          (:snippet-let
+           (push (if (consp arg) (car arg) arg) snippet-env)
+           (push arg around-let))
+          (:ignore (push arg (if (stringp arg) ignore-regexes
+                               ignore-expressions)))
           (:inherit (push arg inherited-templates))
           (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
                      (push (concat (ptemplate--unix-to-native-path "/")
@@ -1072,6 +1074,8 @@ future-proof and readable."
        (when ignore-regexes
          `((ptemplate--prune-template-files
             ,(ptemplate--make-ignore-regex ignore-regexes))))
+       (when ignore-expressions
+         `((ptemplate-ignore ,@ignore-expressions)))
        (when include-dirs
          ;; include dirs specified first take precedence
          `((ptemplate-include
