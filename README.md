@@ -84,6 +84,10 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :subdir Make some template directories appear as if they were in its root.
 - :remap Remap SRC to TARGET in (SRC TARGET) using `ptemplate-remap`.
 - :remap-rec Like :remap, but use `ptemplate-remap-rec` instead.
+- :map Syntax sugar for `ptemplate-map`.
+- :inherit Syntax sugar for `ptemplate-inherit`.
+- :open-bg Open target files in the background at the end of expansion.
+- :open Open target files in the foreground at the end of expansion.
 
 For details, see `M-x describe-function ptemplate!`.
 
@@ -98,6 +102,10 @@ Some other useful functions include:
   precedence
 - `ptemplate-target`: make a path from expansion target + dir
 - `ptemplate-source`: make a path from template directory + dir
+- `ptemplate-inherit`: Like `ptemplate-include`, but the templates in DIRS are
+  evaluated.
+- `ptemplate-inherit-overriding`: To `ptemplate-inherit` what
+  `ptemplate-include-overriding` is to `ptemplate-include`.
 
 # Configuration
 ## ptemplate-template-prompt-function
