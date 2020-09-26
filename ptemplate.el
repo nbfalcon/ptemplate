@@ -520,8 +520,7 @@ manually copies files around in its .ptemplate.el :init block.
 \(`ptemplate-copy-target' is okay in :finalize\)."
   ;; EDGE CASE: empty templates should yield a directory
   (make-directory target t)
-  ;; NOTE: done later to so that `make-directory' can use the original paths in
-  ;; error messages.
+
   (setq source (file-name-as-directory source)
         target (file-name-as-directory target))
   (cl-loop with snippet-env = (nconc `((ptemplate-source-directory . ,source)
@@ -529,11 +528,12 @@ manually copies files around in its .ptemplate.el :init block.
                                      (ptemplate--copy-context-snippet-env context))
            for (src . targetf) in (ptemplate--copy-context-file-map context)
            for realsrc = (concat source src)
-           for realtarget = (concat target targetf)
-           ;; all files from `ptemplate--list-template-files' end in a slash.
+           for realtarget = (when targetf (concat target targetf))
+           ;; NOTE: all files from `ptemplate--list-template-files' end in a slash.
            for dir? = (directory-name-p realsrc)
 
-           do
+           ;;; `ptemplate--copy-context->execute' support nil maps
+           if targetf do
            (make-directory
             ;; directories need to be created "as-is" (they may potentially
             ;; be empty); files must not be created as directories however
@@ -544,7 +544,7 @@ manually copies files around in its .ptemplate.el :init block.
               (concat target (file-name-directory src)))
             t)
 
-           unless dir?
+           and unless dir?
            if (string-suffix-p ".yas" src)
            collect (cons realsrc realtarget) into yasnippets
            else if (string-suffix-p ".autoyas" src)
@@ -853,8 +853,7 @@ SRC is a path relative to the ptemplate being expanded and
 TARGET is a path relative to the expansion target."
   (add-to-list 'ptemplate--template-files
                (cons (ptemplate--normalize-user-path src)
-                     ;; TODO: support nil maps
-                     (ptemplate--normalize-user-path target))))
+                     (when target (ptemplate--normalize-user-path target)))))
 
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
@@ -880,11 +879,11 @@ For each directory that is mapped to a directory within SRC,
 remap it to that same directory relative to TARGET."
   (let ((remap-regex (ptemplate--make-path-regex
                       (ptemplate--normalize-user-path src)))
-        (target (ptemplate--normalize-user-path target)))
+        (target (when target (ptemplate--normalize-user-path target))))
     (dolist (file ptemplate--template-files)
       (when (string-match-p remap-regex (car file))
-        (setcdr file (replace-regexp-in-string
-                      remap-regex target file nil t))))))
+        (setcdr file (when target (replace-regexp-in-string
+                                   remap-regex target file nil t)))))))
 
 (defun ptemplate-copy-target (src target)
   "Copy SRC to TARGET, both relative to the expansion target.
