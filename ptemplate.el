@@ -656,9 +656,11 @@ pass this variable as history argument to `completing-read'.")
 The prompt is a list of \"NAME (TYPE)\". The return value is the
 path to the template, as a string."
   (let ((ptemplates (ptemplate--list-templates-completing-read)))
-    (alist-get (completing-read "Select template: " ptemplates
-                                nil t nil 'ptemplate--completing-read-history)
-               ptemplates nil nil #'string=)))
+    (or
+     (alist-get (completing-read "Select template: " ptemplates
+                                 nil t nil 'ptemplate--completing-read-history)
+                ptemplates nil nil #'string=)
+     (user-error "Please select a template"))))
 
 (defcustom ptemplate-template-prompt-function
   #'ptemplate-prompt-template-completing-read
