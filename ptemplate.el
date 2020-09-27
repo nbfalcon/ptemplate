@@ -65,7 +65,7 @@ solution needs to be devised to share a buffer local value
 between multiple buffers, and `ptemplate--snippet-chain' works as
 follows: This variable actually stores a cons, the `cdr' of which
 points to the actual snippet chain, as described above, the `car'
-always being ignored. This way \(pop (cdr
+always being ignored. This way \(`pop' (`cdr'
 `ptemplate--snippet-chain')\) modifies it in a way that is shared
 between all buffers.
 
@@ -75,10 +75,11 @@ See also `ptemplate--snippet-chain-start'.")
   "Hook to run after the snippet chain finishes.
 Each function therein gets called without arguments.
 
-This hook is a snippet-env variable and not simply appended to
-the list, as it would be executed *before* the end of snippet
-expansion if `ptemplate-snippet-chain-later' is called during
-expansion.")
+This hook needs to be a separate variable and cannot be
+implemented by simply appending it to `ptemplate--snippet-chain'.
+This is because in that case it would get executed too early if
+`ptemplate--snippet-chain-later' were called at least once, as
+then it wouldn't be the last element anymore.")
 
 (defvar-local ptemplate--snippet-chain-env nil
   "List of variables to set in snippet-chain buffers.
@@ -167,7 +168,7 @@ empty, do nothing."
     (let ((finalize ptemplate--snippet-chain-finalize-hook)
           (env ptemplate--snippet-chain-env))
       (kill-buffer)
-      ;; we cannot use `ptemplate--setup-snippet-env', since this isn't a
+      ;; HACK we cannot use `ptemplate--setup-snippet-env', since this isn't a
       ;; snippet chain buffer, so we must resort to abusing `cl-progv'.
       (cl-progv (mapcar #'car env) (mapcar #'cdr env)
         ;; override in the context of the *new* buffer; the previous had been
@@ -705,6 +706,15 @@ directory."
                                ptemplate-default-workspace nil #'string=)))
     (read-file-name "Create project: " workspace workspace)))
 
+(defcustom ptemplate-post-expand-hook '()
+  "Hook run after expanding a template finishes.
+All snippet variables are still bound when this is executed, and
+you can acquire the expansion source and target using
+`ptemplate-source-directory' and `ptemplate-target-directory'.
+The functions therein are called without arguments."
+  :group 'ptemplate
+  :type 'hook)
+
 ;;;###autoload
 (defun ptemplate-expand-template (source target)
   "Expand the template in SOURCE to TARGET.
@@ -714,6 +724,10 @@ If called interactively, SOURCE is prompted using
   (interactive (list (funcall ptemplate-template-prompt-function)
                      (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
+    ;; ensure `ptemplate-post-expand-hook' is run
+    (setf (ptemplate--copy-context-finalize-hook context)
+          (nconc (ptemplate--copy-context-finalize-hook context)
+                 ptemplate-post-expand-hook))
     (ptemplate--copy-context->execute context source target)))
 
 (defun ptemplate-new-project (source target)
@@ -934,7 +948,6 @@ be used to override mappings from SRCS. Mappings from templates
 that come earlier in SRCS take precedence over those from later
 templates. To ignore files from SRCS, map them to nil using :map
 or `ptemplate-map' before calling this function."
-  ;; TODO: map nil needed? @@docstring
   (let* ((contexts (ptemplate--inherit-templates srcs))
          ;; NOTE: templates that come later in DIRS are overriden.
          (to-inherit (mapcan #'ptemplate--copy-context-file-map contexts)))
