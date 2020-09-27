@@ -112,7 +112,7 @@ Variables are set buffer-locally."
            (set (make-local-variable sym) val)))
 
 (defun ptemplate--snippet-chain-continue ()
-  "Make the next snippt/buffer in the snippet chain current."
+  "Make the next snippet/buffer in the snippet chain current."
   ;; the actual payload (which is always in the cdr). (See
   ;; `ptemplate--snippet-chain' for details).
   (let* ((realchain (cdr ptemplate--snippet-chain))
@@ -209,7 +209,7 @@ FINALIZE-HOOK is called when the snippet chain finishes (see
 ;;; utility functions
 (defun ptemplate--unix-to-native-path (path)
   "Replace slashes in PATH with the platform's directory separator.
-PATH is a file path, as a string, assumed to use slashses as
+PATH is a file path, as a string, assumed to use slashes as
 directory separators. On platform's where that character is
 different \(MSDOS, Windows\), replace such slashes with the
 platform's equivalent."
@@ -565,7 +565,7 @@ manually copies files around in its .ptemplate.el :init block.
 ;;; Public API
 (defcustom ptemplate-template-dirs '()
   "List of directories containing templates.
-Analagous to the variable `yas-snippet-dirs'."
+Analogous to the variable `yas-snippet-dirs'."
   :group 'ptemplate
   :type '(repeat string))
 
@@ -962,10 +962,11 @@ Files from templates that come later in SRCS take precedence."
 (defmacro ptemplate! (&rest args)
   "Define a smart ptemplate with elisp.
 For use in .ptemplate.el files. ARGS is a plist-like list with
-any number of sections, specfied as :<section name> FORM... (like
-in `use-package'). Sections can appear multiple times: you could,
-for example, have multiple :init sections, the FORMs of which
-would get evaluated in sequence. Supported keyword are:
+any number of sections, specified as :<section name>
+FORM... (like in `use-package'). Sections can appear multiple
+times: you could, for example, have multiple :init sections, the
+FORMs of which would get evaluated in sequence. Supported keyword
+are:
 
 :init FORMs to run before expansion. This is the default when no
       section is specified.
