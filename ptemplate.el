@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 0.1
+;; Version: 0.2
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -207,7 +207,7 @@ FINALIZE-HOOK is called when the snippet chain finishes (see
         (ptemplate--snippet-chain-finalize-hook finalize-hook))
     (ptemplate--snippet-chain-continue)))
 
-;;; utility functions
+;;; common utility functions
 (defun ptemplate--unix-to-native-path (path)
   "Replace slashes in PATH with the platform's directory separator.
 PATH is a file path, as a string, assumed to use slashes as
@@ -564,35 +564,6 @@ manually copies files around in its .ptemplate.el :init block.
             (ptemplate--copy-context-finalize-hook context))))
 
 ;;; Public API
-(defcustom ptemplate-template-dirs '()
-  "List of directories containing templates.
-Analogous to the variable `yas-snippet-dirs'."
-  :group 'ptemplate
-  :type '(repeat string))
-
-(defun ptemplate-find-templates (template)
-  "Find TEMPLATE in `ptemplate-template-dirs'.
-Template shall be a path of the form \"category/type\". Returns a
-list of full paths to the template directory specified by
-TEMPLATE. Returns the empty list if TEMPLATE cannot be found."
-  (let ((template (file-name-as-directory template))
-        result)
-    (dolist (dir ptemplate-template-dirs)
-      (let ((template-dir (concat (file-name-as-directory dir) template)))
-        (when (file-directory-p template-dir)
-          (push template-dir result))))
-    (nreverse result)))
-
-(defun ptemplate-find-template (template)
-  "Find TEMPLATE in `ptemplate-template-dirs'.
-Unlike `ptemplate-find-templates', this function does not return
-all occurrences, but only the first."
-  (catch 'result
-    (dolist (dir ptemplate-template-dirs)
-      (let ((template-dir (concat (file-name-as-directory dir) template)))
-        (when (file-directory-p template-dir)
-          (throw 'result template-dir))))))
-
 (defun ptemplate-list-template-dir (dir)
   "List all templates in directory DIR.
 The result is of the form (TYPE ((NAME . PATH)...))...."
@@ -605,34 +576,65 @@ The result is of the form (TYPE ((NAME . PATH)...))...."
                                            (cons (file-name-base dir) dir)))))
     (cl-mapcar #'cons types name-dir-pairs)))
 
-(defun ptemplate-list-templates ()
-  "List all templates in `ptemplate-template-dirs'.
+(defun ptemplate-list-templates (templates)
+  "List all templates in TEMPLATES.
 The result is an alist ((TYPE (NAME . PATH)...)...)."
-  (mapcan #'ptemplate-list-template-dir ptemplate-template-dirs))
+  (mapcan #'ptemplate-list-template-dir templates))
 
-(defun ptemplate--list-templates-helm ()
+(defcustom ptemplate-project-template-dirs '()
+  "List of directories containing project templates.
+Each directory therein shall be a directory of directories, the
+latter specifying the types of templates and the former the names
+of the templates.
+
+The templates defined by this list are used in
+`ptemplate-new-project', when called interactively. Analogous to
+the variable `yas-snippet-dirs'."
+  :group 'ptemplate
+  :type '(repeat string))
+
+(defun ptemplate-list-project-templates ()
+  "List all templates in `ptemplate-project-template-dirs'."
+  (ptemplate-list-templates ptemplate-project-template-dirs))
+
+(defcustom ptemplate-directory-template-dirs '()
+  "List of directories containing directory templates.
+Like `ptemplate-project-template-dirs', but for
+`ptemplate-expand-template'."
+  :group 'ptemplate
+  :type '(repeat string))
+
+(defun ptemplate-list-directory-templates ()
+  "List all templates in `ptemplate-project-template-dirs'."
+  (ptemplate-list-templates ptemplate-directory-template-dirs))
+
+(defun ptemplate--list-templates-helm (templates)
   "Make a list of helm sources from the user's templates.
-Gather a list of the user's templates using
-`ptemplate-list-templates' and convert each TYPE . TEMPLATES pair
-into a helm source with TYPE as its header. Each helm source's
-action is to create a new project in a directory prompted from
-the user (see `ptemplate-exec-template').
+TEMPLATES specifies the list of templates for the user to select
+from, and is as returned by `ptemplate-list-templates'.
+
+Convert each (TYPE . TEMPLATES) pair into a helm source with TYPE
+as its header.
 
 Helm (in particular, helm-source.el) must already be loaded when
 this function is called."
   (declare-function helm-make-source "helm" (name class &rest args))
-  (cl-loop for entry in (ptemplate-list-templates) collect
-           (helm-make-source (car entry) 'helm-source-sync
-             :candidates (cdr entry))))
+  (cl-loop for (type . templates) in templates collect
+           (helm-make-source type 'helm-source-sync :candidates templates)))
 
-(defun ptemplate-prompt-template-helm ()
+(defun ptemplate-prompt-template-helm (templates)
   "Prompt for a template using `helm'.
-The prompt is a `helm' prompt where all templates are categorized
+TEMPLATES is as returned by `ptemplate-list-templates'. The
+prompt is a `helm' prompt where all templates are categorized
 under their types (as `helm' sources). The return value is the
-path to the template, as a string."
+path to the template, as a string.
+
+This function's API is not stable, and it is only for use in
+`ptemplate-template-prompt-function'."
   (require 'helm)
   (declare-function helm "helm")
-  (helm :sources (ptemplate--list-templates-helm) :buffer "*helm ptemplate*"))
+  (helm :sources (ptemplate--list-templates-helm templates)
+        :buffer "*helm ptemplate*"))
 
 (defface ptemplate-type-face '((t :inherit font-lock-function-name-face))
   "Face used to show template types in for the :completing-read backend.
@@ -641,25 +643,32 @@ When :completing-read is used as backend in
 STRING appended to it. That TYPE is propertized with this face."
   :group 'ptemplate-faces)
 
-(defun ptemplate--list-templates-completing-read ()
-  "Make a `completing-read' collection."
-  (cl-loop for heading in (ptemplate-list-templates) nconc
-           (let ((category (propertize (format "(%s)" (car heading))
+(defun ptemplate--list-templates-completing-read (templates)
+  "`ptemplate--list-templates-helm', but for `completing-read'.
+Returns an alist mapping \(propertized\) strings, of the form
+\"<name> <type>\", to template paths. TEMPLATES is a list of
+templates, as returned by `ptemplate-list-templates'."
+  (cl-loop for (type . templates) in templates nconc
+           (let ((category (propertize (format "(%s)" type)
                                        'face 'ptemplate-type-face)))
-             (cl-loop for template in (cdr heading) collect
-                      (cons (concat (car template) " " category)
-                            (cdr template))))))
+             (cl-loop for (name . path) in templates collect
+                      (cons (concat name " " category) path)))))
 
 (defvar ptemplate--completing-read-history nil
   "History variable for `completing-read'-based template prompts.
 If :completing-read is set as `ptemplate-template-prompt-function',
 pass this variable as history argument to `completing-read'.")
 
-(defun ptemplate-prompt-template-completing-read ()
+(defun ptemplate-prompt-template-completing-read (templates)
   "Prompt for a template using `completing-read'.
-The prompt is a list of \"NAME (TYPE)\". The return value is the
-path to the template, as a string."
-  (let ((ptemplates (ptemplate--list-templates-completing-read)))
+The prompt is a list of \"NAME (TYPE)\" and uses
+`completing-read', so can be used with anything that isn't helm.
+
+TEMPLATES is as returned by `ptemplate-list-templates'.
+
+This function's API is not stable, and it for use only for use in
+`ptemplate-template-prompt-function' and conforms to its API."
+  (let ((ptemplates (ptemplate--list-templates-completing-read templates)))
     (or
      (alist-get (completing-read "Select template: " ptemplates
                                  nil t nil 'ptemplate--completing-read-history)
@@ -669,8 +678,9 @@ path to the template, as a string."
 (defcustom ptemplate-template-prompt-function
   #'ptemplate-prompt-template-completing-read
   "Prompting method to use to read a template from the user.
-The function shall take no arguments and return the path to the
-template as a string."
+The function shall take a single argument, the list of templates
+\(as returned by `ptemplates-list-templates'\) and return the
+path to the template as a string."
   :group 'ptemplate
   :type '(radio
           (const :tag "completing-read (ivy, helm, ...)"
@@ -721,7 +731,8 @@ The functions therein are called without arguments."
 If called interactively, SOURCE is prompted using
 `ptemplate-template-prompt-function' and TARGET using
 `read-file-name'"
-  (interactive (list (funcall ptemplate-template-prompt-function)
+  (interactive (list (funcall ptemplate-template-prompt-function
+                              (ptemplate-list-directory-templates))
                      (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
     ;; ensure `ptemplate-post-expand-hook' is run
@@ -739,7 +750,8 @@ interactively, TARGET is prompted using `read-file-name', with
 the initial directory looked up in `ptemplate-workspace-alist'
 using SOURCE's type, defaulting to `ptemplate-default-workspace'.
 If even that is nil, use `default-directory'."
-  (interactive (let ((template (funcall ptemplate-template-prompt-function)))
+  (interactive (let ((template (funcall ptemplate-template-prompt-function
+                                        (ptemplate-list-project-templates))))
                  (list template (ptemplate--prompt-target template))))
   (when (file-directory-p target)
     ;; NOTE: the error message should mention the user-supplied target (not

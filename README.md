@@ -141,10 +141,14 @@ is not associated, use `ptemplate-default-workspace`, or the current buffer's
 ## ptemplate-default-workspace
 See above.
 
-## ptemplate-template-dirs
-List of directories in which templates are looked up. Each directory specified
-shall consist of a number of subdirectories (corresponding to types) each of
-which have separate subdirectories for templates (template names).
+## ptemplate-project-template-dirs
+List of directories in which templates are looked up when calling
+`ptemplate-new-project` interactively. Each directory specified shall consist of
+a number of subdirectories (corresponding to types) each of which have separate
+subdirectories for templates (template names).
+
+## ptemplate-directory-template-dirs
+See above, but for `ptemplate-expand-template`.
 
 # Installation
 This package is not yet on `MELPA`. However, you can install it using any
