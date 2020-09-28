@@ -1,16 +1,19 @@
 # About
 Projects contain a lot of boilerplate like build system files, cask files,
-license files, ..., making starting new projects more work than it needs to be.
+license files, …, making starting new projects more work than it needs to be.
 The ptemplate Emacs plugin solves that problem: it lets you define directory
 templates that can contain various files and directories, including yasnippets.
 Such templates ("ptemplates") can even be made intelligent using Emacs Lisp.
 
-But ptemplate cannot just automate projects: templates can also be expanded to
-existing directories, meaning that things like creating classes could also be
-automated.
+However, ptemplate cannot just automate project creation: templates can also be
+expanded to existing directories, meaning that things like creating classes
+could also be automated.
+
+Official templates are maintained in a [separate
+repository](https://github.com/nbfalcon/ptemplate-templates.git).
 
 # Features
-- Powerful, scriptable templates (using Emacs LISP)
+- Powerful, scriptable templates (leveraging Emacs LISP)
 - Interactive file snippets
 - Purely automatic file generation using yasnippets
 - Template inheritance
@@ -26,8 +29,8 @@ template names (see the "Configuration" section below).
 # Writing templates
 All templates are categorized into types, which are associated with workspace
 directories using the variable `ptemplate-workspace-alist`. You could, for
-example, have types corresponding to languages (so a Java type, a C++ type,
-...). The corresponding workspace is used as the default folder in the project
+example, have types corresponding to languages (so a Java type, a C++ type, …).
+The corresponding workspace is used as the default folder in the project
 directory selection. Templates are stored in `ptemplate-template-dirs`, a list
 of directories containing templates, all of which must be categorized under type
 directories as described above.
@@ -41,10 +44,10 @@ replicated:
 ### \*.yas
 Files ending in .yas are yasnippets, which are expanded in a so-called snippet
 chain: a list of all such files is gathered, after which a single buffer pops up
-where the user can expand the first snippet like any regular yasnippet (TAB,
-...). The following snippets can be visited similarly by pressing `C-c C-c`, at
-which point the buffer is killed and written to the target. The following
-keybindings are available in a snippet chain buffer:
+where the user can expand the first snippet like any regular yasnippet (TAB, …).
+The following snippets can be visited similarly by pressing `C-c C-c`, at which
+point the buffer is killed and written to the target. The following keybindings
+are available in a snippet chain buffer:
 
 #### `C-c C-c`: `ptemplate-snippet-chain-continue`
 Finish expanding the current yasnippet by writing the current snippet buffer to
@@ -151,8 +154,11 @@ subdirectories for templates (template names).
 See above, but for `ptemplate-expand-template`.
 
 # Installation
-This package is not yet on `MELPA`. However, you can install it using any
-package manager/fetcher that can handle GitHub repositories:
+This package can be installed from `MELPA`, so `M-x package-install` should be
+sufficient if you have MELPA enabled. See the #Configuration section below on
+how to get started.
+
+Alternatively, it can be downloded from github directly:
 
 ## `quelpa` + `use-package`
 ``` emacs-lisp
