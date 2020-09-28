@@ -564,22 +564,27 @@ manually copies files around in its .ptemplate.el :init block.
             (ptemplate--copy-context-finalize-hook context))))
 
 ;;; Public API
+(defun ptemplate--list-dir-dirs (dir)
+  "Like `ptemplate-list-dir', but only include directories.
+DIR specifies the path to the directory to list."
+  (cl-delete-if-not #'file-directory-p (ptemplate--list-dir dir)))
+
 (defun ptemplate-list-template-dir (dir)
   "List all templates in directory DIR.
 The result is of the form (TYPE ((NAME . PATH)...))...."
-  (let* ((type-dirs (ptemplate--list-dir dir))
+  (let* ((type-dirs (ptemplate--list-dir-dirs dir))
          (types (mapcar #'file-name-base type-dirs))
          (name-dirs (cl-loop for tdir in type-dirs collect
-                             (ptemplate--list-dir tdir)))
+                             (ptemplate--list-dir-dirs tdir)))
          (name-dir-pairs (cl-loop for name-dir in name-dirs collect
                                   (cl-loop for dir in name-dir collect
                                            (cons (file-name-base dir) dir)))))
     (cl-mapcar #'cons types name-dir-pairs)))
 
-(defun ptemplate-list-templates (templates)
-  "List all templates in TEMPLATES.
+(defun ptemplate-list-templates (template-dirs)
+  "List all templates in TEMPLATE-DIRS.
 The result is an alist ((TYPE (NAME . PATH)...)...)."
-  (mapcan #'ptemplate-list-template-dir templates))
+  (mapcan #'ptemplate-list-template-dir template-dirs))
 
 (defcustom ptemplate-project-template-dirs '()
   "List of directories containing project templates.
