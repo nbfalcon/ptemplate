@@ -5,7 +5,7 @@ details about internals, which this file tries to provide.
 
 * Snippet chain
 The snippet chain is a relatively small subsystem of ptemplate, around 150 lines
-as of writing (mainly due to comments) and is not dependent on the rest of
+as of writing (mainly due to docstrings) and is not dependent on the rest of
 ptemplate.
 
 One feature, as stated in the README, is the interactive expansion of file
