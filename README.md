@@ -1,4 +1,5 @@
 # About
+
 Projects contain a lot of boilerplate like build system files, cask files,
 license files, …, making starting new projects more work than it needs to be.
 The ptemplate Emacs plugin solves that problem: it lets you define directory
@@ -13,6 +14,7 @@ Official templates are maintained in a [separate
 repository](https://github.com/nbfalcon/ptemplate-templates.git).
 
 # Features
+
 - Powerful, scriptable templates (leveraging Emacs LISP)
 - Interactive file snippets
 - Purely automatic file generation using yasnippets
@@ -20,13 +22,16 @@ repository](https://github.com/nbfalcon/ptemplate-templates.git).
 - Parallel expansion of multiple templates at once
 
 # Usage
+
 ## Creating new projects
+
 For helm users, run `ptemplate-new-project`. It will then prompt you to select a
 template followed by a project directory. The templates are categorized in
 types, which are either mapped to helm sections or to suffixes appended to
 template names (see the "Configuration" section below).
 
 # Writing templates
+
 All templates are categorized into types, which are associated with workspace
 directories using the variable `ptemplate-workspace-alist`. You could, for
 example, have types corresponding to languages (so a Java type, a C++ type, …).
@@ -36,12 +41,14 @@ of directories containing templates, all of which must be categorized under type
 directories as described above.
 
 ## Anatomy of a template
+
 Each template has a nested directory structure, consisting of any number of
 files and directories, which is replicated at the expansion target. Some files
 (depending on their suffix) are expanded specially, and their extension is not
 replicated:
 
 ### \*.yas
+
 Files ending in .yas are yasnippets, which are expanded in a so-called snippet
 chain: a list of all such files is gathered, after which a single buffer pops up
 where the user can expand the first snippet like any regular yasnippet (TAB, …).
@@ -50,10 +57,12 @@ point the buffer is killed and written to the target. The following keybindings
 are available in a snippet chain buffer:
 
 #### `C-c C-c`: `ptemplate-snippet-chain-continue`
+
 Finish expanding the current yasnippet by writing the current snippet buffer to
 the correct destination and killing its buffer.
 
 #### `C-C C-l`: `ptemplate-snippet-chain-later`
+
 Mark the current snippet buffer to be expanded later and continue like
 `ptemplate-snippet-chain-continue`. Unlike with `ptemplate-snippet-chain-next`,
 the snippet buffer is not killed. You can use this keybinding to procrastinate
@@ -63,6 +72,7 @@ The keybindings can be modified by customizing
 `ptemplate-snippet-chain-mode-map`.
 
 ### \*.autoyas
+
 Files ending in .autoyas are expanded headlessly: all snippet-chain variables
 are made available to them, but they are not added to the snippet chain, instead
 expanded during the copy-phase without human interaction. If you want to
@@ -70,16 +80,19 @@ interpolate certain files by leveraging yasnippet, but don't want the user to
 fill in any fields, these types of snippets are useful.
 
 ### \*.keep
+
 .keep files are copied like normal files, but without the .keep extension. Name
 files this way if you need to override ptemplate's special file handling for
 some files (e.g. if you are writing templates for ptemplate templates).
 
 ### \*.nocopy
+
 Such files are not copied at all. Empty directories cannot be added to git. This
 way, an empty .gitkeep.nocopy file can be added in empty directories to make
 them part of the template.
 
 ### .ptemplate.el
+
 As stated in "About", ptemplate allows templates to be scripted with Emacs Lisp.
 For this, you can add .ptemplate.el in the template's root directory, which is
 evaluated before expansion. This file is not copied. Even though arbitrary lisp
@@ -122,7 +135,9 @@ Some other useful functions include:
   `ptemplate-include-overriding` is to `ptemplate-include`.
 
 # Configuration
+
 ## ptemplate-template-prompt-function
+
 This variable specifies which function to use for prompting templates. It can be
 a custom function, or one of the builtin ones (see its docstring for details).
 By default it prompts templates using completing-read, and their types appended
@@ -135,6 +150,7 @@ sections (sources) instead:
 ```
 
 ## ptemplate-workspace-alist
+
 Maps template types to workspaces. When a new project is created, the type is
 looked up in this alist and the directory mapped is suggested as the default
 target, in which another directory may be specified for expansion. If the type
@@ -142,18 +158,22 @@ is not associated, use `ptemplate-default-workspace`, or the current buffer's
 `default-directory` if even that is nil.
 
 ## ptemplate-default-workspace
+
 See above.
 
 ## ptemplate-project-template-dirs
+
 List of directories in which templates are looked up when calling
 `ptemplate-new-project` interactively. Each directory specified shall consist of
 a number of subdirectories (corresponding to types) each of which have separate
 subdirectories for templates (template names).
 
 ## ptemplate-directory-template-dirs
+
 See above, but for `ptemplate-expand-template`.
 
 # Installation
+
 This package can be installed from `MELPA`, so `M-x package-install` should be
 sufficient if you have MELPA enabled. See the #Configuration section below on
 how to get started.
@@ -161,24 +181,28 @@ how to get started.
 Alternatively, it can be downloded from github directly:
 
 ## `quelpa` + `use-package`
+
 ``` emacs-lisp
 (quelpa '(ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
 (use-package ptemplate)
 ```
 
 ## `quelpa-use-package`
+
 ``` emacs-lisp
 (use-package ptemplate
   :quelpa (ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
 ```
 
 ## `straight-use-package`
+
 ``` emacs-lisp
 (straight-use-package
  '(ptemplate :type git :host github :repo "nbfalcon/ptemplate"))
 ```
 
 # Security note
+
 Due to the smart expansion feature, and due to allowing yasnippets in templates,
 ptemplate is *not* secure the same way as a modern browser is, for example. You
 should use only trusted templates. A malicious template could have a snippet
@@ -196,3 +220,11 @@ general (*any* Emacs plugin could do the same) and not specific to ptemplate.
 
 Removing that feature or making it optional would be pretty pointless, as it
 would degrade ptemplate to simply being a fronted to `cp -R`.
+
+# Test suite
+
+Ptemplate has a test-suite, which can be found in `test/`, and can be run with
+`cask exec ert-runner`. A part of it involves comparing directories recursively,
+which is done using the `diff` utility (only tested with GNU diff). You can
+configure a different diff command to use by setting the environment variable
+`PTEMPLATE_TEST_DIFF_CMD`.
