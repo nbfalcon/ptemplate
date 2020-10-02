@@ -747,6 +747,7 @@ If called interactively, SOURCE is prompted using
                  ptemplate-post-expand-hook))
     (ptemplate--copy-context->execute context source target)))
 
+;;;###autoload
 (defun ptemplate-new-project (source target)
   "Create a new project based on a template.
 Like `ptemplate-expand-template', but ensure that TARGET doesn't
