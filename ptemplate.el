@@ -359,6 +359,7 @@ context. The opposite of <name><-from-env.
 \(&rest\), yields a new copy context by merging each of their
 fields in order \(with `nconc'\), except for those that have the
 :merge-hooks key explicitly set to nil \(defaults to t\)."
+  (declare (doc-string 1))
   (let ((constructor (intern (format "%s<-new" name)))
         (copier (intern (format "%s<-copy" name)))
         (from-env (intern (format "%s<-from-env" name)))
@@ -366,15 +367,15 @@ fields in order \(with `nconc'\), except for those that have the
         (merge-hooks (intern (format "%s<-merge-hooks" name)))
         (with-vars-nil (intern (format "%s->with-vars-nil" name))))
     `(progn
-       ;;; `ptemplate--copy-context'
+;;; `ptemplate--copy-context'
        (cl-defstruct (,name (:constructor ,constructor)
                             (:copier ,copier)) ,docstring
-         ,@(cl-loop for (fname . props) in fields
-                    for var = (plist-get props :var)
-                    for field-doc = (format "Corresponds to variable `%s'."
-                                            var)
-                    collect `(,fname nil :documentation ,field-doc)))
-       ;;; `ptemplate--copy-context<-from-env'
+                            ,@(cl-loop for (fname . props) in fields
+                                       for var = (plist-get props :var)
+                                       for field-doc = (format "Corresponds to variable `%s'."
+                                                               var)
+                                       collect `(,fname nil :documentation ,field-doc)))
+;;; `ptemplate--copy-context<-from-env'
        (defun ,from-env ()
          ,(format
            "Make a `%s' from the current environment.
@@ -385,7 +386,7 @@ The opposite of `%s->to-env'." name name)
          (,constructor ,@(cl-loop for (fname . props) in fields
                                   collect (intern (format ":%s" fname))
                                   collect (plist-get props :var))))
-       ;;; `ptemplate--copy-context->to-env'
+;;; `ptemplate--copy-context->to-env'
        (defun ,to-env (--context--)
          ,(format
            "Elevate --CONTEXT-- into the caller's environment.
@@ -398,7 +399,7 @@ environment, which could be \(`let'-bound\).
           ,@(cl-loop for (fname . props) in fields
                      collect (plist-get props :var)
                      collect `(,(intern (format "%s-%s" name fname)) --context--))))
-       ;;; `ptemplate--copy-context<-merge-hooks'
+;;; `ptemplate--copy-context<-merge-hooks'
        (defun ,merge-hooks (&rest --contexts--)
          ,(format
            "Merge --CONTEXTS--'s \"hook\" members.
@@ -438,7 +439,7 @@ expression."
                          for var = (plist-get props :var)
                          collect var)
             ,',@body)))
-       ;;; HACKING: add new to-be generated copy-context functions before here
+;;; HACKING: add new to-be generated copy-context functions before here
        )))
 
 (ptemplate--define-copy-context ptemplate--copy-context
@@ -868,22 +869,6 @@ callback first, to report such duplicates to the user."
    (nconc override base-files)
    ;; duplicates are normal (mappings from OVERRIDE).
    #'ignore))
-
-(defun ptemplate--inherit-templates (srcs)
-  "Inherit the hooks of all templates in SRCS.
-This functions evaluates all templates in the template path array
-SRCS and prepends their hooks \(as defined by
-`ptemplate--copy-context<-merge-hooks'\) to the current global
-ones. The files of SRCS are not imported though, to do that being
-left to the caller. Returns a list of template contexts
-corresponding to each template in SRCS.
-
-See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
-  (let ((inherit-contexts (mapcar #'ptemplate--eval-template srcs)))
-    (ptemplate--copy-context->to-env
-     (apply #'ptemplate--copy-context<-merge-hooks
-            (nconc inherit-contexts (ptemplate--copy-context<-from-env))))
-    inherit-contexts))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
@@ -955,6 +940,22 @@ other behaviour, use `ptemplate-include-override' instead."
   (ptemplate--override-files
    ptemplate--template-files
    (mapcan #'ptemplate--list-template-dir-files dirs)))
+
+(defun ptemplate--inherit-templates (srcs)
+  "Inherit the hooks of all templates in SRCS.
+This functions evaluates all templates in the template path array
+SRCS and prepends their hooks \(as defined by
+`ptemplate--copy-context<-merge-hooks'\) to the current global
+ones. The files of SRCS are not imported though, to do that being
+left to the caller. Returns a list of template contexts
+corresponding to each template in SRCS.
+
+See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
+  (let ((inherit-contexts (mapcar #'ptemplate--eval-template srcs)))
+    (ptemplate--copy-context->to-env
+     (apply #'ptemplate--copy-context<-merge-hooks
+            (nconc inherit-contexts (ptemplate--copy-context<-from-env))))
+    inherit-contexts))
 
 (defun ptemplate-inherit (&rest srcs)
   "Inherit all templates in SRCS.
