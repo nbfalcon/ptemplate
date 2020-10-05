@@ -227,7 +227,7 @@ Unlike `directory-files-recursively', directories end in the
 platform's directory separator. \".\" and \"..\" are not
 included."
   (setq path (file-name-as-directory path))
-  (cl-loop for file in (let ((default-directory path))
+  (cl-loop for file in (let ((default-directory (expand-file-name path)))
                          (directory-files-recursively "." "" t))
            collect (if (file-directory-p (concat path file))
                        (file-name-as-directory file) file)))
@@ -245,6 +245,26 @@ PATH specifies the path to examine."
   (cl-loop for file in (ptemplate--dir-find-relative path)
            unless (string-suffix-p ".nocopy" file)
            collect (cons file (ptemplate--auto-map-file file))))
+
+(defun ptemplate--file-map-absolute (src file-map)
+  "Make FILE-MAP refer to SRC.
+Each mapping \(FSRC . TARGET\) is transformed into \((SRC . FSRC)
+. TARGET\).
+
+Return the result.
+
+See `ptemplate--template-files' for a description of FILE-MAP."
+  (cl-loop with src = (file-name-as-directory src)
+           for (fsrc . target) in file-map
+           collect (cons (cons src fsrc) target)))
+
+(defun ptemplate--list-template-dir-files-abs (path)
+  "Like `ptemplate--list-template-dir-files'.
+The difference is that this version yields an absolute mapping
+instead \(see `ptemplate--file-map-absolute'\).
+
+PATH specifies that path to the template."
+  (ptemplate--file-map-absolute path (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--list-template-files (path)
   "Find all files in ptemplate PATH.
@@ -312,26 +332,29 @@ snippets need be expanded.
 
 See also `ptemplate--before-expand-hooks'.")
 
-(defvar-local ptemplate--snippet-env nil
+(defvar ptemplate--snippet-env nil
   "Environment used for snippet expansion.
 Alist of (SYMBOL . VALUE), like `ptemplate--snippet-chain-env'
 but for the entire template.")
 
 (defvar ptemplate--template-files nil
   "Alist mapping template source files to their targets.
-Alist (SRC . TARGET), where SRC and TARGET are strings (see
-`ptemplate-map' for details). This variable is always
-`let'-bound.")
+Alist \(SRC . TARGET\), where SRC and TARGET are strings (see
+`ptemplate-map' for details). Additionally, SRC may be a cons of
+the form \(PREFIX . SRC\), in which case the source path becomes
+PREFIX + SRC. TARGET may be nil, in which case nothing shall be
+copied.
 
-(defvar-local ptemplate-target-directory nil
+This variable is always `let'-bound.")
+
+(defvar ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
 You can use this in templates. This variable always ends in the
 platform-specific directory separator, so you can use this with
 `concat' to build file paths.")
 
-(defvar-local ptemplate-source-directory nil
-  "Source directory of ptemplate expansion.
-Akin to `ptemplate-source-directory'.")
+(defvar ptemplate-source-directory nil
+  "Source directory of ptemplate expansion.")
 
 ;;; `ptemplate--copy-context'
 (defmacro ptemplate--define-copy-context (name docstring &rest fields)
@@ -434,64 +457,24 @@ Fields not merged are: %s."
 Execute BODY in an environment where the variables to which the
 fields correspond are bound to nil. Return the result of the last
 expression."
+         (declare (debug t))
          (backquote
           (let ,(cl-loop for (_ . props) in fields
                          for var = (plist-get props :var)
                          collect var)
             ,',@body)))
-;;; HACKING: add new to-be generated copy-context functions before here
+;;; HACKING: add new to-be-generated copy-context functions before here
        )))
 
 (ptemplate--define-copy-context ptemplate--copy-context
   "Holds data needed by ptemplate's copy phase.
 To acquire this state, a template's file need to be listed and
 the .ptemplate.el needs to be evaluated against it.
-`ptemplate--template-context->execute'"
+`ptemplate--copy-context->execute'"
   (before-snippets :var ptemplate--before-snippet-hook)
   (finalize-hook :var ptemplate--finalize-hook)
   (snippet-env :var ptemplate--snippet-env)
   (file-map :var ptemplate--template-files :merge-hooks nil))
-
-;; (defun ptemplate--copy-context->to-env (context)
-;;   "Elevate CONTEXT into the caller's environment.
-;; The opposite of `ptemplate--copy-context<-from-env'. All global
-;; template variables, as bound in the current environment, are
-;; overridden with their counterparts in CONTEXT, which is a
-;; `ptemplate--copy-context'."
-;;   (setq ptemplate--before-snippet-hook
-;;         (ptemplate--copy-context-before-snippets context)
-;;         ptemplate--finalize-hook
-;;         (ptemplate--copy-context-finalize-hook context)
-;;         ptemplate--snippet-env
-;;         (ptemplate--copy-context-snippet-env context)
-
-;;         ptemplate--template-files (ptemplate--copy-context-file-map context)))
-
-;; (defun ptemplate--copy-context<-from-env ()
-;;   "Make a `ptemplate--copy-context' from the current environment.
-;; During expansion, global ptemplate variables \(e.g.
-;; `ptemplate--template-files'\) are `let'-bound and modified. This
-;; function acquires a `ptemplate--copy-context' from such
-;; variables, as bound in the current environment, and returns it."
-;;   (ptemplate--copy-context<-new
-;;    :file-map ptemplate--template-files
-;;    :before-snippets ptemplate--before-snippet-hook
-;;    :finalize-hook ptemplate--finalize-hook
-;;    :snippet-env ptemplate--snippet-env))
-
-;; (defun ptemplate--copy-context<-merge-hooks (&rest contexts)
-;;   "Merge CONTEXTS' non-file-map members.
-;; CONTEXTS is a list of `ptemplate--copy-context's.
-
-;; Return the result, which is a `ptemplate--copy-context'.
-
-;; Note that non-file-map members \(like before-snippets\) are
-;; merged using `nconc' and as such may be altered destructively."
-;;   (ptemplate--copy-context<-new
-;;    :before-snippets (mapcan #'ptemplate--copy-context-before-snippets contexts)
-;;    :finalize-hook (mapcan #'ptemplate--copy-context-finalize-hook contexts)
-;;    :snippet-env (mapcan #'ptemplate--copy-context-snippet-env contexts)
-;;    :file-map nil))
 
 (defun ptemplate--eval-template (source &optional target)
   "Evaluate the template given by SOURCE.
@@ -501,8 +484,8 @@ the template should be expanded to and may be left out for
 templates that don't make use of `ptemplate-target-directory' in
 :init. Both SOURCE and TARGET are directories, with an optional
 trailing slash."
-  (setq target (file-name-as-directory target))
   (setq source (file-name-as-directory source))
+  (when target (setq target (file-name-as-directory target)))
 
   (ptemplate--copy-context->with-vars-nil
    (let ((dotptemplate (concat source ".ptemplate.el"))
@@ -510,7 +493,7 @@ trailing slash."
          (ptemplate-source-directory source)
          (ptemplate-target-directory target))
      (setq ptemplate--template-files (ptemplate--list-template-files source))
-    ;;; load .ptemplate.el
+;;; load .ptemplate.el
      (when (file-exists-p dotptemplate)
        ;; NOTE: arbitrary code execution
        (load-file dotptemplate))
@@ -530,16 +513,19 @@ manually copies files around in its .ptemplate.el :init block.
 
   (setq source (file-name-as-directory source)
         target (file-name-as-directory target))
-  (cl-loop with snippet-env = (nconc `((ptemplate-source-directory . ,source)
-                                       (ptemplate-target-directory . ,target))
-                                     (ptemplate--copy-context-snippet-env context))
-           for (src . targetf) in (ptemplate--copy-context-file-map context)
-           for realsrc = (concat source src)
-           for realtarget = (when targetf (concat target targetf))
+  (cl-loop with snippet-env = `((ptemplate-source-directory . ,source)
+                                (ptemplate-target-directory . ,target)
+                                ,@(ptemplate--copy-context-snippet-env context))
+           for (srcpair . targetf) in (ptemplate--copy-context-file-map context)
+          
+           for src = (if (consp srcpair) (cdr srcpair) srcpair)
+           for realsrc = (concat (if (consp srcpair) (car srcpair) source) src)
            ;; NOTE: all files from `ptemplate--list-template-files' end in a slash.
            for dir? = (directory-name-p realsrc)
 
-           ;;; `ptemplate--copy-context->execute' support nil maps
+           for realtarget = (when targetf (concat target targetf))
+
+;;; `ptemplate--copy-context->execute': support nil maps
            if targetf do
            (make-directory
             ;; directories need to be created "as-is" (they may potentially
@@ -547,8 +533,7 @@ manually copies files around in its .ptemplate.el :init block.
             ;; but their containing directories instead. This avoids
             ;; prompts asking the user if they really want to save a file
             ;; even though its containing directory was not made yet.
-            (if dir? (concat target src)
-              (concat target (file-name-directory src)))
+            (if dir? realtarget (file-name-directory realtarget))
             t)
 
            and unless dir?
@@ -827,20 +812,32 @@ REGEXES is a list of strings as described there."
               (ptemplate--make-basename-regex regex)))
    "\\|"))
 
+(defun ptemplate--map-relsrc (file-map)
+  "Get the relative source from FILE-MAP.
+FILE-MAP shall be a file mapping, as can be found in
+`ptemplate--template-files' \((SRC . TARGET)\). If SRC is a cons
+that also stores the path to the file, return only the relative
+part: \(((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise yield
+SRC."
+  (let ((src (car file-map)))
+    (or (cdr-safe src) src)))
+
 (defun ptemplate--prune-template-files (regex)
   "Remove all template whose source files match REGEX.
 This function is only supposed to be called from `ptemplate!'."
   (setq ptemplate--template-files
         (cl-delete-if
-         (lambda (src-targetf) (string-match-p regex (car src-targetf)))
+         (lambda (src-targetf)
+           (string-match-p regex (ptemplate--map-relsrc src-targetf)))
          ptemplate--template-files)))
 
 (defun ptemplate--prune-duplicate-files (files dup-cb)
   "Find and remove duplicates in FILES.
 FILES shall be a list of template file mappings \(see
 `ptemplate--template-files'\). If a duplicate is encountered,
-call DUP-CB using `funcall' and pass to it the (SRC . TARGET)
-cons that was encountered later.
+call DUP-CB using `funcall' and pass to it `car' of the mapping
+that came earlier and the \(SRC . TARGET\) cons that was
+encountered later.
 
 Return a new list of mappings with all duplicates removed.
 
@@ -848,28 +845,34 @@ This function uses a hashmap and is as such efficient for large
 lists, but doesn't use constant memory."
   ;; hashmap of all target files mapped to `t'
   (cl-loop with known-targets = (make-hash-table :test 'equal)
-           for file in files for target = (cdr file)
+           for file in files
+
+           for target = (cdr file)
+
+           ;; nil maps
+           for prev-source = (when target (gethash target known-targets))
+           if prev-source
            ;; already encountered? call DUP-CB
-           if (gethash target known-targets) do (funcall dup-cb file)
+           do (funcall dup-cb prev-source file)
            ;; remember it as encountered and collect it, since it was first
-           else do (puthash target t known-targets) and collect file))
+           else do (puthash target (car file) known-targets)
+           and collect file))
 
 (defun ptemplate--override-files (base-files override)
   "Override all mappings in BASE-FILES with those in OVERRIDE.
 Both of them shall be mappings like `ptemplate--template-files'.
 BASE-FILES and OVERRIDE may be altered destructively.
 
-Return the new mapping alist, with files from OVERRIDE having
-taken precedence. In either of those parameters, files mapped
-earlier win.
+Store the result in `ptemplate--template-files'.
 
 Note that because duplicate mappings might silently be deleted,
 you should call `ptemplate--prune-duplicate-files' with a warning
 callback first, to report such duplicates to the user."
-  (ptemplate--prune-duplicate-files
-   (nconc override base-files)
-   ;; duplicates are normal (mappings from OVERRIDE).
-   #'ignore))
+  (setq ptemplate--template-files
+        (ptemplate--prune-duplicate-files
+         (nconc override base-files)
+         ;; duplicates are normal (mappings from OVERRIDE).
+         #'ignore)))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
@@ -933,30 +936,38 @@ valid filenames and are not interpreted.
 
 The files defined in the template take precedence. To get the
 other behaviour, use `ptemplate-include-override' instead."
-  (ptemplate--override-files (mapcan #'ptemplate--list-template-dir-files dirs)
-                             ptemplate--template-files))
+  (ptemplate--override-files
+   (mapcan #'ptemplate--list-template-dir-files-abs dirs)
+   ptemplate--template-files))
 
 (defun ptemplate-include-override (&rest dirs)
   "Like `ptemplate-include', but files in DIRS override."
   (ptemplate--override-files
    ptemplate--template-files
-   (mapcan #'ptemplate--list-template-dir-files dirs)))
+   (mapcan #'ptemplate--list-template-dir-files-abs dirs)))
 
 (defun ptemplate--inherit-templates (srcs)
   "Inherit the hooks of all templates in SRCS.
-This functions evaluates all templates in the template path array
+This functions evaluates all templates in the template path list
 SRCS and prepends their hooks \(as defined by
 `ptemplate--copy-context<-merge-hooks'\) to the current global
-ones. The files of SRCS are not imported though, to do that being
-left to the caller. Returns a list of template contexts
-corresponding to each template in SRCS.
+ones.
+
+Return a list of path mappings corresponding to SRCS, each of
+which refer to their corresponding sources \(see
+`ptemplate--file-map-absolute'\).
 
 See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
-  (let ((inherit-contexts (mapcar #'ptemplate--eval-template srcs)))
+  (let ((inherit-contexts (mapcar #'ptemplate--eval-template srcs))
+        ;; prevent `ptemplate--copy-context->to-env' from overriding the global
+        ;; file-map (set to nil, as `ptemplate--copy-context<-merge-hooks' leaves
+        ;; :file-map nil)
+        ptemplate--template-files)
     (ptemplate--copy-context->to-env
      (apply #'ptemplate--copy-context<-merge-hooks
-            (nconc inherit-contexts (ptemplate--copy-context<-from-env))))
-    inherit-contexts))
+            (append inherit-contexts (list (ptemplate--copy-context<-from-env)))))
+    (cl-mapcar #'ptemplate--file-map-absolute srcs
+               (mapcar #'ptemplate--copy-context-file-map inherit-contexts))))
 
 (defun ptemplate-inherit (&rest srcs)
   "Inherit all templates in SRCS.
@@ -967,17 +978,15 @@ be used to override mappings from SRCS. Mappings from templates
 that come earlier in SRCS take precedence over those from later
 templates. To ignore files from SRCS, map them to nil using :map
 or `ptemplate-map' before calling this function."
-  (let* ((contexts (ptemplate--inherit-templates srcs))
-         ;; NOTE: templates that come later in DIRS are overriden.
-         (to-inherit (mapcan #'ptemplate--copy-context-file-map contexts)))
+  ;; NOTE: templates that come later in DIRS are overriden.
+  (let ((to-inherit (apply #'nconc (ptemplate--inherit-templates srcs))))
     (ptemplate--override-files to-inherit ptemplate--template-files)))
 
 (defun ptemplate-inherit-overriding (&rest srcs)
   "Like `ptemplate-inherit', but files in SRCS take precedence.
 Files from templates that come later in SRCS take precedence."
-  (let* ((contexts (ptemplate--inherit-templates srcs))
-         (to-inherit (mapcan #'ptemplate--copy-context-file-map
-                             (nreverse contexts))))
+  (let ((to-inherit
+         (apply #'nconc (nreverse (ptemplate--inherit-templates srcs)))))
     (ptemplate--override-files ptemplate--template-files to-inherit)))
 
 (defun ptemplate-source (dir)
@@ -1029,8 +1038,8 @@ are:
              initialize the variable. Note that the value of
              snippet-let blocks can be changed in :init.
 
-:ignore See `ptemplate-ignore'. Files are pruned before
-        :init.
+:ignore Syntax sugar for `ptemplate-ignore'. Files are pruned
+        before :init.
 
 :subdir Make some template-relative paths appear to be in the
         root. Practically, this means not adding its files and
@@ -1056,18 +1065,20 @@ are:
 :open-bg Expressions yielding files \(target-relative\) to open
          with `find-file-noselect' at the very end of expansion.
 
-:open Like :open-bg, but using `find-file'.
+:open Like :open-bg, but open the last file using `find-file'.
+      Files that are not the last one will be opened using
+      `find-file-noselect'.
 
 Note that because .ptemplate.el files just execute arbitrary
 code, you could write them entirely without using this
 macro (e.g. by modifying hooks directly, ...). However, you
-should still use `ptemplate!', as this makes templates more
-future-proof and readable."
+should still use `ptemplate!', as it abstracts away those
+internal details, which are subject to change at any time."
   (let ((cur-keyword :init)
         init-forms
         before-yas-eval
         after-copy-eval
-        finalize-eval open-eval open-bg-eval
+        finalize-eval open-fg open-bg
         snippet-env
         around-let
         ignore-regexes ignore-expressions
@@ -1082,8 +1093,8 @@ future-proof and readable."
           (:before-snippets (push arg before-yas-eval))
           (:after-copy (push arg after-copy-eval))
           (:finalize (push arg finalize-eval))
-          (:open (push `(find-file (ptemplate-target ,arg)) open-eval))
-          (:open-bg (push `(find-file (ptemplate-target ,arg)) open-bg-eval))
+          (:open (push arg open-fg))
+          (:open-bg (push arg open-bg))
           (:snippet-env (push arg snippet-env))
           (:snippet-let
            (push (if (consp arg) (car arg) arg) snippet-env)
@@ -1105,8 +1116,7 @@ future-proof and readable."
      (macroexp-progn
       (nconc
        (when ignore-regexes
-         `((ptemplate--prune-template-files
-            ,(ptemplate--make-ignore-regex ignore-regexes))))
+         `((ptemplate-ignore ,ignore-regexes)))
        (when ignore-expressions
          `((ptemplate-ignore ,@ignore-expressions)))
        (when include-dirs
@@ -1129,12 +1139,22 @@ future-proof and readable."
          `((add-hook 'ptemplate--after-copy-hook
                      (lambda () "Run after copying files."
                        ,@(nreverse after-copy-eval)))))
-       (when (or finalize-eval open-bg-eval open-eval)
+       (when (or finalize-eval open-bg open-fg)
          `((add-hook 'ptemplate--finalize-hook
                      (lambda () "Run after template expansion finishes."
                        ,@(nreverse finalize-eval)
-                       ,@(nreverse open-bg-eval)
-                       ,@(nreverse open-eval)))))
+;;; :open-bg, :open
+                       ;; First open all files from :open-bg and then all files
+                       ;; except the last :open file (push prepends to the list,
+                       ;; so they are in reverse) using `find-file-noselect'.
+                       ;; Edge case: open-fg is nil; however, `cdr' nil -> nil.
+                       ,@(cl-loop for bg-f in (nconc (nreverse open-bg)
+                                                     (nreverse (cdr open-fg)))
+                                  collect `(find-file-noselect (ptemplate-target ,bg-f)))
+                       ;; Are there any files to be opened in the foreground? If
+                       ;; yes, open only the first that way.
+                       ,@(when open-fg
+                           (list (car open-fg)))))))
        (when snippet-env
          `((setq
             ptemplate--snippet-env

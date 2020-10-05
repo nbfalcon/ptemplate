@@ -1,10 +1,11 @@
 # About
 
-This subfolder contains "expansion tests". These are executed by the ert-test
-`ptemplate-expansion`, and work as follows:
+This subfolder contains "expansion tests". Each directory (non-directories are
+ignored) shall contain the following:
 
-Each directory in this folder shall contain two subdirectories, `template/` and
-`result/`. Additional files (README.md) are allowed and ignored. `template/` is
-expanded to a temporary directory and then compared against `result/`. If these
-directories match exactly (all files and subfolders are the same, compared
-recursively), then that expansion test succeeds, failing otherwise.
+- `template/`: expanded to a temporary directory
+- `result/`: for the test to succeed, `template/` must expand to a directory
+  recursively equal to this directory
+  
+Most of the time, the documentation of tests will be in their `.ptemplate.el`
+files, since a `;;; Commentary: ` block is needed to suppress warnings.
