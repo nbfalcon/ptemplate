@@ -249,14 +249,15 @@ PATH specifies the path to examine."
 (defun ptemplate--file-map-absolute (src file-map)
   "Make FILE-MAP refer to SRC.
 Each mapping \(FSRC . TARGET\) is transformed into \((SRC . FSRC)
-. TARGET\).
+. TARGET\), unless it already is of that form \(needed for nested
+inheritance\).
 
 Return the result.
 
 See `ptemplate--template-files' for a description of FILE-MAP."
   (cl-loop with src = (file-name-as-directory src)
            for (fsrc . target) in file-map
-           collect (cons (cons src fsrc) target)))
+           collect (cons (if (consp fsrc) fsrc (cons src fsrc)) target)))
 
 (defun ptemplate--list-template-dir-files-abs (path)
   "Like `ptemplate--list-template-dir-files'.
@@ -976,8 +977,8 @@ template's ones and the files from SRCS are added for expansion.
 File maps defined in the current template take precedence, so can
 be used to override mappings from SRCS. Mappings from templates
 that come earlier in SRCS take precedence over those from later
-templates. To ignore files from SRCS, map them to nil using :map
-or `ptemplate-map' before calling this function."
+templates. To ignore files from SRCS, map them from nil using
+:map or `ptemplate-map' before calling this function."
   ;; NOTE: templates that come later in DIRS are overriden.
   (let ((to-inherit (apply #'nconc (ptemplate--inherit-templates srcs))))
     (ptemplate--override-files to-inherit ptemplate--template-files)))
@@ -1074,6 +1075,7 @@ code, you could write them entirely without using this
 macro (e.g. by modifying hooks directly, ...). However, you
 should still use `ptemplate!', as it abstracts away those
 internal details, which are subject to change at any time."
+  (declare (indent 0))
   (let ((cur-keyword :init)
         init-forms
         before-yas-eval
