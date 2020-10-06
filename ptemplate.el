@@ -500,6 +500,31 @@ trailing slash."
 
      (ptemplate--copy-context<-from-env))))
 
+(defun ptemplate--prune-duplicate-files (files dup-cb)
+  "Find and remove duplicates in FILES.
+FILES shall be a list of template file mappings \(see
+`ptemplate--template-files'\). If a duplicate is encountered,
+call DUP-CB using `funcall' and pass to it `car' of the mapping
+that came earlier and the \(SRC . TARGET\) cons that was
+encountered later.
+
+Return a new list of mappings with all duplicates removed
+\(non-destructively\).
+
+This function uses a hashmap and is as such efficient for large
+lists, but doesn't use constant memory."
+  ;; hashmap of all target files mapped to `t'
+  (cl-loop with known-targets = (make-hash-table :test 'equal)
+           for file in files
+           for target = (cdr file)
+
+           for prev-source = (gethash target known-targets)
+           if prev-source
+           ;; already encountered? call DUP-CB
+           do (funcall dup-cb prev-source file)
+           ;; remember it as encountered and collect it, since it was first
+           else do (puthash target file known-targets) and collect file))
+
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
 SOURCE specifies the template's source directory and TARGET the
@@ -516,7 +541,15 @@ manually copies files around in its .ptemplate.el :init block.
   (cl-loop with snippet-env = `((ptemplate-source-directory . ,source)
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
-           for (srcpair . targetf) in (ptemplate--copy-context-file-map context)
+           with dup-file-map = (ptemplate--copy-context-file-map context)
+           with file-map =
+           (ptemplate--prune-duplicate-files
+            dup-file-map
+            (lambda (prev cur)
+              (lwarn '(ptemplate ptemplate-expand-template) :error
+                     "duplicate mappings encountered: \"%s\" before \"%s\""
+                     prev cur)))
+           for (srcpair . targetf) in file-map
            ;; NOTE: If SRCPAIR is nil, SRC becomes nil (no error), because nil
            ;; is `consp' and `cdr' nil is nil.
            for src = (if (consp srcpair) (cdr srcpair) srcpair)
@@ -834,45 +867,22 @@ This function is only supposed to be called from `ptemplate!'."
            (string-match-p regex (ptemplate--map-relsrc src-targetf)))
          ptemplate--template-files)))
 
-(defun ptemplate--prune-duplicate-files (files dup-cb)
-  "Find and remove duplicates in FILES.
-FILES shall be a list of template file mappings \(see
-`ptemplate--template-files'\). If a duplicate is encountered,
-call DUP-CB using `funcall' and pass to it `car' of the mapping
-that came earlier and the \(SRC . TARGET\) cons that was
-encountered later.
-
-Return a new list of mappings with all duplicates removed.
-
-This function uses a hashmap and is as such efficient for large
-lists, but doesn't use constant memory."
-  ;; hashmap of all target files mapped to `t'
-  (cl-loop with known-targets = (make-hash-table :test 'equal)
-           for file in files
-           for target = (cdr file)
-
-           for prev-source = (gethash target known-targets)
-           if prev-source
-           ;; already encountered? call DUP-CB
-           do (funcall dup-cb prev-source file)
-           ;; remember it as encountered and collect it, since it was first
-           else do (puthash target file known-targets) and collect file))
-
 (defun ptemplate--override-files (base-files override)
   "Override all mappings in BASE-FILES with those in OVERRIDE.
 Both of them shall be mappings like `ptemplate--template-files'.
 BASE-FILES and OVERRIDE may be altered destructively.
 
-Store the result in `ptemplate--template-files'.
-
-Note that because duplicate mappings might silently be deleted,
-you should call `ptemplate--prune-duplicate-files' with a warning
-callback first, to report such duplicates to the user."
-  (setq ptemplate--template-files
-        (ptemplate--prune-duplicate-files
-         (nconc override base-files)
-         ;; duplicates are normal (mappings from OVERRIDE).
-         #'ignore)))
+Store the result in `ptemplate--template-files'."
+  (let ((mapped-targets (make-hash-table :test #'equal)))
+    ;; set up hash table: all targets from OVERRIDE are to be remembered, and
+    ;; not to be taken from BASE-FILES.
+    (dolist (target override)
+      (puthash (cdr target) t mapped-targets))
+    (setq ptemplate--template-files
+          ;; OVERRIDE + all files not mapped to in OVERRIDE from BASE-FILES
+          (nconc override (cl-delete-if
+                           (lambda (m) (gethash (cdr m) mapped-targets))
+                           base-files)))))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
