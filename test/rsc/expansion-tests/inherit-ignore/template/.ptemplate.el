@@ -9,6 +9,6 @@
 
 (ptemplate! :init
             (ptemplate-inherit (ptemplate-source "../../inherit/template"))
-            (ptemplate-ignore "\\.gitkeep"))
+            (ptemplate-ignore "file"))
 
 ;;; .ptemplate.el ends here

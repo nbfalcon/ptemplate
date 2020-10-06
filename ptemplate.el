@@ -35,7 +35,7 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'subr-x)
+(require 'subr-x)                       ; `string-join'
 
 ;;; `declare-function'
 (declare-function yas-minor-mode "yasnippet" (&optional arg))
@@ -486,13 +486,12 @@ templates that don't make use of `ptemplate-target-directory' in
 :init. Both SOURCE and TARGET are directories, with an optional
 trailing slash."
   (setq source (file-name-as-directory source))
-  (when target (setq target (file-name-as-directory target)))
-
   (ptemplate--copy-context->with-vars-nil
    (let ((dotptemplate (concat source ".ptemplate.el"))
          ;; the dotptemplate file should know about source and target.
          (ptemplate-source-directory source)
-         (ptemplate-target-directory target))
+         (ptemplate-target-directory
+          (and target (file-name-as-directory target))))
      (setq ptemplate--template-files (ptemplate--list-template-files source))
 ;;; load .ptemplate.el
      (when (file-exists-p dotptemplate)
@@ -518,22 +517,25 @@ manually copies files around in its .ptemplate.el :init block.
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
            for (srcpair . targetf) in (ptemplate--copy-context-file-map context)
-          
+           ;; NOTE: If SRCPAIR is nil, SRC becomes nil (no error), because nil
+           ;; is `consp' and `cdr' nil is nil.
            for src = (if (consp srcpair) (cdr srcpair) srcpair)
-           for realsrc = (concat (if (consp srcpair) (car srcpair) source) src)
-           ;; NOTE: all files from `ptemplate--list-template-files' end in a slash.
-           for dir? = (directory-name-p realsrc)
+           for realsrc = (when src (concat (if (consp srcpair)
+                                               (car srcpair) source) src))
+           ;; NOTE: all directories from `ptemplate--list-template-files' end in
+           ;; a slash.
+           for dir? = (when src (directory-name-p realsrc))
 
-           for realtarget = (when targetf (concat target targetf))
+           for realtarget = (concat target targetf)
 
 ;;; `ptemplate--copy-context->execute': support nil maps
-           if targetf do
+           if src do
            (make-directory
-            ;; directories need to be created "as-is" (they may potentially
-            ;; be empty); files must not be created as directories however
-            ;; but their containing directories instead. This avoids
-            ;; prompts asking the user if they really want to save a file
-            ;; even though its containing directory was not made yet.
+            ;; directories need to be created "as-is" (they may potentially be
+            ;; empty); files must not be created as directories however but
+            ;; their containing directories instead. This avoids prompts asking
+            ;; the user if they really want to save a file even though its
+            ;; containing directory was not made yet.
             (if dir? realtarget (file-name-directory realtarget))
             t)
 
@@ -847,17 +849,14 @@ lists, but doesn't use constant memory."
   ;; hashmap of all target files mapped to `t'
   (cl-loop with known-targets = (make-hash-table :test 'equal)
            for file in files
-
            for target = (cdr file)
 
-           ;; nil maps
-           for prev-source = (when target (gethash target known-targets))
+           for prev-source = (gethash target known-targets)
            if prev-source
            ;; already encountered? call DUP-CB
            do (funcall dup-cb prev-source file)
            ;; remember it as encountered and collect it, since it was first
-           else do (puthash target (car file) known-targets)
-           and collect file))
+           else do (puthash target file known-targets) and collect file))
 
 (defun ptemplate--override-files (base-files override)
   "Override all mappings in BASE-FILES with those in OVERRIDE.
@@ -878,11 +877,15 @@ callback first, to report such duplicates to the user."
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
   "Map SRC to TARGET for expansion.
-SRC is a path relative to the ptemplate being expanded and
-TARGET is a path relative to the expansion target."
+SRC is a path relative to the ptemplate being expanded and TARGET
+is a path relative to the expansion target.
+
+SRC can also be nil, in which case nothing would be copied, but
+TARGET would shadow mappings from inherited or included
+templates."
   (add-to-list 'ptemplate--template-files
-               (cons (ptemplate--normalize-user-path src)
-                     (when target (ptemplate--normalize-user-path target)))))
+               (cons (when src (ptemplate--normalize-user-path src))
+                     (ptemplate--normalize-user-path target))))
 
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
@@ -908,11 +911,11 @@ For each directory that is mapped to a directory within SRC,
 remap it to that same directory relative to TARGET."
   (let ((remap-regex (ptemplate--make-path-regex
                       (ptemplate--normalize-user-path src)))
-        (target (when target (ptemplate--normalize-user-path target))))
+        (target (ptemplate--normalize-user-path target)))
     (dolist (file ptemplate--template-files)
       (when (string-match-p remap-regex (car file))
-        (setcdr file (when target (replace-regexp-in-string
-                                   remap-regex target file nil t)))))))
+        (setcdr file (replace-regexp-in-string
+                      remap-regex target file nil t))))))
 
 (defun ptemplate-copy-target (src target)
   "Copy SRC to TARGET, both relative to the expansion target.
