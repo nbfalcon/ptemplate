@@ -129,10 +129,12 @@ Some other useful functions include:
   precedence
 - `ptemplate-target`: make a path from expansion target + dir
 - `ptemplate-source`: make a path from template directory + dir
-- `ptemplate-inherit`: Like `ptemplate-include`, but the templates in DIRS are
+- `ptemplate-inherit`: like `ptemplate-include`, but the templates in DIRS are
   evaluated.
 - `ptemplate-inherit-overriding`: To `ptemplate-inherit` what
   `ptemplate-include-overriding` is to `ptemplate-include`.
+- `ptemplate-with-file-sandbox`: execute BODY with a detached file map (use to
+  modify an inherited template)
 
 # Configuration
 

@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 0.2
+;; Version: 1.0.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -451,7 +451,8 @@ Fields not merged are: %s."
                              ;; NOTE: by default, *do* merge hooks; it is
                              ;; usually only file-map that shouldn't be merged.
                              (plist-get props :merge-hooks) t)
-                         `(mapcan #',(intern (format "%s-%s" name fname)) --contexts--)
+                         `(mapcan #',(intern (format "%s-%s" name fname))
+                                  --contexts--)
                        'nil))))
        (defmacro ,with-vars-nil (&rest body)
          "`let'-bind the copy context's variables to nil.
@@ -883,6 +884,12 @@ Store the result in `ptemplate--template-files'."
           (nconc override (cl-delete-if
                            (lambda (m) (gethash (cdr m) mapped-targets))
                            base-files)))))
+
+(defun ptemplate--normalize-user-path-dir (path)
+  "`ptemplate--normalize-user-path', but yield a directory.
+PATH is transformed according to it and the result made a
+directory path."
+  (file-name-as-directory (ptemplate--normalize-user-path path)))
 
 ;;; .ptemplate.el api
 (defun ptemplate-map (src target)
@@ -919,13 +926,12 @@ See also `ptemplate-remap-rec'."
   "Like `ptemplate-remap', but handle directories recursively instead.
 For each directory that is mapped to a directory within SRC,
 remap it to that same directory relative to TARGET."
-  (let ((remap-regex (ptemplate--make-path-regex
-                      (ptemplate--normalize-user-path src)))
-        (target (ptemplate--normalize-user-path target)))
+  (let ((remap-regex
+         (concat "\\`" (regexp-quote (ptemplate--normalize-user-path-dir src))))
+        (target (ptemplate--normalize-user-path-dir target)))
     (dolist (file ptemplate--template-files)
-      (when (string-match-p remap-regex (car file))
-        (setcdr file (replace-regexp-in-string
-                      remap-regex target file nil t))))))
+      (setcdr file (replace-regexp-in-string
+                    remap-regex target (cdr file) nil t)))))
 
 (defun ptemplate-copy-target (src target)
   "Copy SRC to TARGET, both relative to the expansion target.
@@ -1010,6 +1016,20 @@ Files from templates that come later in SRCS take precedence."
 (defun ptemplate-target (dir)
   "Return DIR as if relative to `ptemplate-target-directory'."
   (concat ptemplate-target-directory dir))
+
+(defmacro ptemplate-with-file-sandbox (&rest body)
+  "Execute BODY with an isolated file map.
+The file map in which BODY is executed is empty and appended to
+the global one afterwards.
+
+Return the result of the last BODY form."
+  (declare (indent 0))
+  `(let ((--ptemplate-sandbox-result--
+          (let (ptemplate--template-files)
+            (cons ,(macroexp-progn body) ptemplate--template-files))))
+     (setq ptemplate--template-files
+           (nconc ptemplate--template-files (cdr --ptemplate-sandbox-result--)))
+     (car --ptemplate-sandbox-result--)))
 
 ;; NOTE: ;;;###autoload is unnecessary here, as `ptemplate!' is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
