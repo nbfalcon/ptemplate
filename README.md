@@ -25,9 +25,9 @@ repository](https://github.com/nbfalcon/ptemplate-templates.git).
 
 ## Creating new projects
 
-For helm users, run `ptemplate-new-project`. It will then prompt you to select a
-template followed by a project directory. The templates are categorized in
-types, which are either mapped to helm sections or to suffixes appended to
+To create a new project, run `ptemplate-new-project`. It will then prompt you to
+select a template followed by a project directory. The templates are categorized
+in types, which are either mapped to helm sections or to suffixes appended to
 template names (see the "Configuration" section below).
 
 # Writing templates
