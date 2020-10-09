@@ -370,7 +370,7 @@ variable this field corresponds to, and is used to generate the
 <name><-from-env function. The struct's constructor is
 <name><-new and its copier is <name><-copy.
 
-This macro generates three functions:
+This macro generates three additional functions:
 
 <name><-from-env: Yield a copy context from the global
 environment, with each field acquired from the corresponding
@@ -1145,7 +1145,10 @@ internal details, which are subject to change at any time."
           (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-eval))
           (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
                             remap-eval))
-          (:map (push `(ptemplate-map ,(car arg) ,(cadr arg)) map-eval)))))
+          (:map (push `(ptemplate-map ,(car arg) ,(cadr arg)) map-eval))
+
+;;; `ptemplate!' error handling
+          (_ (error "`ptemplate!': unknown keyword '%s'" cur-keyword)))))
     (macroexp-let*
      (nreverse around-let)
      (macroexp-progn
