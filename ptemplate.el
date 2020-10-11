@@ -45,6 +45,9 @@
 
 (cl-defstruct (ptemplate--snippet-chain
                (:constructor ptemplate--snippet-chain<-new))
+  "Holds all state needed for executing a snippet chain.
+An instance of this, `ptemplate--snippet-chain-context', is
+passed trough each buffer so that they can all share some state."
   (snippets
    nil :documentation
    "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
