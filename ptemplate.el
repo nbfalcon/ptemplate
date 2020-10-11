@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.0.0
+;; Version: 1.1.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -89,6 +89,18 @@ Alist of (SYMBOL . VALUE).
 variables will be made buffer-local before being set, so
 `defvar-local' is not necessary.")
 
+(defvar-local ptemplate--snippet-chain-newbuf-hook nil
+  "Hook run after each snippet-chain buffer is created.
+Can be used to configure `ptemplate--snippet-chain-nokill'. Each
+function therein is called with no arguments.")
+
+(defvar-local ptemplate--snippet-chain-nokill nil
+  "If set in a snippet-chain buffer, don't kill it.
+Normally, `ptemplate--snippet-chain-continue' kills the buffer
+when moving on. If this variable is set, don't do that. Useful
+when one wants to keep the cursor when reopening a snippet chain
+file.")
+
 (defun ptemplate--read-file (file)
   "Read FILE and return its contents a string."
   (with-temp-buffer
@@ -114,7 +126,7 @@ Variables are set buffer-locally."
 
 (defun ptemplate--snippet-chain-continue ()
   "Make the next snippet/buffer in the snippet chain current."
-  ;; the actual payload (which is always in the cdr). (See
+  ;; the actual payload (which is always in the `cdr'). (See
   ;; `ptemplate--snippet-chain' for details).
   (let* ((realchain (cdr ptemplate--snippet-chain))
          (next (car realchain)))
@@ -135,9 +147,17 @@ Variables are set buffer-locally."
           ;; ... are `defvar-local', so need not be made buffer-local.
           (dolist (sym '(ptemplate--snippet-chain
                          ptemplate--snippet-chain-env
-                         ptemplate--snippet-chain-finalize-hook))
+                         ptemplate--snippet-chain-finalize-hook
+                         ptemplate--snippet-chain-newbuf-hook
+                         ;; HACKING: add new snippet chain variables before
+                         ;; here, if they need to be inherited.
+                         ))
             (set sym (buffer-local-value sym oldbuf)))
           (ptemplate--setup-snippet-env ptemplate--snippet-chain-env)
+
+          ;; let the user configure the buffer, with the snippet-env already
+          ;; bound.
+          (run-hooks 'ptemplate--snippet-chain-newbuf-hook)
 
           ;; "yasnippet needs a properly set-up `yas-minor-mode'"
           (yas-minor-mode 1)
@@ -157,7 +177,12 @@ empty, do nothing."
         ;; mitigate "flickering" to old buffer; first, acquire the new one and
         ;; then kill the old one.
         (ptemplate--snippet-chain-continue)
-        (kill-buffer old-buf))
+        (if ptemplate--snippet-chain-nokill
+            ;; if we don't kill it, we must at least disable the snippet-chain
+            ;; mode for it, so the keybindings go away. NOTE that the
+            ;; snippet-chain variables won't though.
+            (ptemplate-snippet-chain-mode -1)
+          (kill-buffer old-buf)))
     ;; EDGE CASE: if no buffer follows, `ptemplate--finalize-hook' must be
     ;; run, but at the *very* end, meaning this buffer must already be dead by
     ;; then and nothing must happen after. The following issue prompted this:
@@ -167,7 +192,9 @@ empty, do nothing."
     ;; project).
     (let ((finalize ptemplate--snippet-chain-finalize-hook)
           (env ptemplate--snippet-chain-env))
-      (kill-buffer)
+      (if ptemplate--snippet-chain-nokill
+          (ptemplate-snippet-chain-mode -1)
+        (kill-buffer))
       ;; HACK we cannot use `ptemplate--setup-snippet-env', since this isn't a
       ;; snippet chain buffer, so we must resort to abusing `cl-progv'.
       (cl-progv (mapcar #'car env) (mapcar #'cdr env)
@@ -193,18 +220,22 @@ others."
   (nconc ptemplate--snippet-chain (list (current-buffer)))
   (ptemplate--snippet-chain-continue))
 
-(defun ptemplate--snippet-chain-start (snippets &optional env finalize-hook)
+(defun ptemplate--snippet-chain-start (snippets &optional env finalize-hook newbuf-hook)
   "Start a snippet chain with SNIPPETS.
 For details, see `ptemplate--snippet-chain'.
 
 ENV (alist of (SYMBOL . VALUE)) specifies the variables to set in
 each new buffer.
 
-FINALIZE-HOOK is called when the snippet chain finishes (see
-`ptemplate--snippet-chain-finalize-hook')."
+FINALIZE-HOOK is run when the snippet chain finishes. Corresponds
+to `ptemplate--snippet-chain-finalize-hook'.
+
+NEWBUF-HOOK is run each time a new snippet chain buffer is
+created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
   (let ((ptemplate--snippet-chain (cons 'ptemplate-snippet-chain snippets))
         (ptemplate--snippet-chain-env env)
-        (ptemplate--snippet-chain-finalize-hook finalize-hook))
+        (ptemplate--snippet-chain-finalize-hook finalize-hook)
+        (ptemplate--snippet-chain-newbuf-hook newbuf-hook))
     (ptemplate--snippet-chain-continue)))
 
 ;;; common utility functions
@@ -348,6 +379,12 @@ copied.
 
 This variable is always `let'-bound.")
 
+(defvar ptemplate--newbuf-hook nil
+  "Hook run when creating snippet-chain buffers.
+Corresponds to `ptemplate--snippet-chain-newbuf-hook'.")
+
+;;; HACKING: add new template variables before here
+
 (defvar ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
 You can use this in templates. This variable always ends in the
@@ -383,7 +420,7 @@ context. The opposite of <name><-from-env.
 \(&rest\), yields a new copy context by merging each of their
 fields in order \(with `nconc'\), except for those that have the
 :merge-hooks key explicitly set to nil \(defaults to t\)."
-  (declare (doc-string 1))
+  (declare (doc-string 2) (indent 1))
   (let ((constructor (intern (format "%s<-new" name)))
         (copier (intern (format "%s<-copy" name)))
         (from-env (intern (format "%s<-from-env" name)))
@@ -434,9 +471,9 @@ CONTEXTS is a list of `%s's, whose fields are merged using
 Return the result, which is a `%s'.
 
 Fields not merged are: %s."
-           ;; XXX: if there are many :merge-hooks nil fields, the docstring
+           ;; FIXME: if there are many :merge-hooks nil fields, the docstring
            ;; will not be filled properly. This won't be a problem for
-           ;; `ptemplate' though.
+           ;; `ptemplate' though, so this has a very low priority.
            name name (string-join
                       (cl-loop for (fname . props) in fields
                                if (and (plist-member props :merge-hooks)
@@ -476,6 +513,8 @@ the .ptemplate.el needs to be evaluated against it.
   (before-snippets :var ptemplate--before-snippet-hook)
   (finalize-hook :var ptemplate--finalize-hook)
   (snippet-env :var ptemplate--snippet-env)
+  (newbuf-hook :var ptemplate--newbuf-hook)
+
   (file-map :var ptemplate--template-files :merge-hooks nil))
 
 (defun ptemplate--eval-template (source &optional target)
@@ -584,7 +623,8 @@ manually copies files around in its .ptemplate.el :init block.
            (run-hooks 'ptemplate--before-snippet-hook)
            (ptemplate--snippet-chain-start
             yasnippets snippet-env
-            (ptemplate--copy-context-finalize-hook context))))
+            (ptemplate--copy-context-finalize-hook context)
+            (ptemplate--copy-context-newbuf-hook context))))
 
 ;;; Public API
 (defun ptemplate--list-dir-dirs (dir)
@@ -1031,6 +1071,39 @@ Return the result of the last BODY form."
            (nconc ptemplate--template-files (cdr --ptemplate-sandbox-result--)))
      (car --ptemplate-sandbox-result--)))
 
+(defun ptemplate-target-relative ()
+  "Get the expansion-target relative path of the buffer.
+Only for use in `ptemplate-snippet-setup'"
+  (concat (ptemplate--unix-to-native-path "./")
+          (file-relative-name buffer-file-name ptemplate-target-directory)))
+
+(defun ptemplate-snippet-setup (callback &rest snippets)
+  "Run CALLBACK to configure SNIPPETS.
+SNIPPETS is a list of target-relative file snippet targets
+\(.yas\). If a yasnippet expands to them, CALLBACK is called and
+can configure them further. All variables defined in
+:snippet-env, :snippet-let, ... are available to it."
+  (let ((snippets (mapcar #'ptemplate--normalize-user-path snippets)))
+    (add-to-list 'ptemplate--newbuf-hook
+                 (lambda () "Run to configure snippet-chain buffers."
+                   (when (member (ptemplate-target-relative) snippets)
+                     (funcall callback))))))
+
+(defun ptemplate-set-snippet-kill-p (&optional kill-p)
+  "Set whether the snippet buffer should be killed.
+When continuing the snippet-chain with
+`ptemplate-snippet-chain-next', snippet chain buffers would
+usually be killed. Use this function to change that to KILL-P.
+Only for use in `ptemplate-snippet-setup'."
+  (setq ptemplate--snippet-chain-nokill (not kill-p)))
+
+(defun ptemplate-nokill-snippets (&rest snippets)
+  "Don't kill SNIPPETS after expansion.
+SNIPPETS is a list of target-relative file snippets \(.yas\)
+whose buffers should not be killed in
+`ptemplate-snippet-chain-next'."
+  (apply #'ptemplate-snippet-setup #'ptemplate-set-snippet-kill-p snippets))
+
 ;; NOTE: ;;;###autoload is unnecessary here, as `ptemplate!' is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
 ;; `ptemplate-expand-template', at which point `ptemplate' is already loaded.
@@ -1103,6 +1176,8 @@ are:
       Files that are not the last one will be opened using
       `find-file-noselect'.
 
+:late Executed after :inherit.
+
 Note that because .ptemplate.el files just execute arbitrary
 code, you could write them entirely without using this
 macro (e.g. by modifying hooks directly, ...). However, you
@@ -1111,23 +1186,25 @@ internal details, which are subject to change at any time."
   (declare (indent 0))
   (let ((cur-keyword :init)
         init-forms
-        before-yas-eval
-        after-copy-eval
-        finalize-eval open-fg open-bg
+        before-yas-forms
+        after-copy-forms
+        finalize-forms open-fg open-bg
         snippet-env
         around-let
         ignore-regexes ignore-expressions
         inherited-templates
         include-dirs
-        remap-eval map-eval)
+        remap-forms map-forms
+        late-forms
+        nokill-buffers snippet-setup-forms)
     (dolist (arg args)
       (if (keywordp arg)
           (setq cur-keyword arg)
         (pcase cur-keyword
           (:init (push arg init-forms))
-          (:before-snippets (push arg before-yas-eval))
-          (:after-copy (push arg after-copy-eval))
-          (:finalize (push arg finalize-eval))
+          (:before-snippets (push arg before-yas-forms))
+          (:after-copy (push arg after-copy-forms))
+          (:finalize (push arg finalize-forms))
           (:open (push arg open-fg))
           (:open-bg (push arg open-bg))
           (:snippet-env (push arg snippet-env))
@@ -1142,10 +1219,16 @@ internal details, which are subject to change at any time."
                                    simplified-path)
                            ignore-regexes)
                      (push simplified-path include-dirs)))
-          (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-eval))
+          (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-forms))
           (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
-                            remap-eval))
-          (:map (push `(ptemplate-map ,(car arg) ,(cadr arg)) map-eval))
+                            remap-forms))
+          (:map (push `(ptemplate-map ,(car arg) ,(cadr arg)) map-forms))
+          (:late (push arg late-forms))
+          (:nokill (push arg nokill-buffers))
+          (:snippet-setup
+           (push `(ptemplate-snippet-setup (lambda () ,@(cdr arg)) ,@(car arg))
+                 snippet-setup-forms))
+;;; HACKING: add new `ptemplate' blocks before here
 
 ;;; `ptemplate!' error handling
           (_ (error "`ptemplate!': unknown keyword '%s'" cur-keyword)))))
@@ -1154,7 +1237,7 @@ internal details, which are subject to change at any time."
      (macroexp-progn
       (nconc
        (when ignore-regexes
-         `((ptemplate-ignore ,ignore-regexes)))
+         `((ptemplate-ignore ,@ignore-regexes)))
        (when ignore-expressions
          `((ptemplate-ignore ,@ignore-expressions)))
        (when include-dirs
@@ -1163,24 +1246,25 @@ internal details, which are subject to change at any time."
             ,@(cl-loop for dir in (nreverse include-dirs)
                        collect (list #'ptemplate-source dir)))))
        (nreverse init-forms)
-       (nreverse remap-eval)
-       (nreverse map-eval)
+       (nreverse remap-forms)
+       (nreverse map-forms)
        ;; execute late to give the user the chance to map files in a way that
        ;; overrides first.
        (when inherited-templates
          `((ptemplate-inherit ,@inherited-templates)))
-       (when before-yas-eval
+       (nreverse late-forms)
+       (when before-yas-forms
          `((add-hook 'ptemplate--before-snippet-hook
                      (lambda () "Run before expanding snippets."
-                       ,@(nreverse before-yas-eval)))))
-       (when after-copy-eval
+                       ,@(nreverse before-yas-forms)))))
+       (when after-copy-forms
          `((add-hook 'ptemplate--after-copy-hook
                      (lambda () "Run after copying files."
-                       ,@(nreverse after-copy-eval)))))
-       (when (or finalize-eval open-bg open-fg)
+                       ,@(nreverse after-copy-forms)))))
+       (when (or finalize-forms open-bg open-fg)
          `((add-hook 'ptemplate--finalize-hook
                      (lambda () "Run after template expansion finishes."
-                       ,@(nreverse finalize-eval)
+                       ,@(nreverse finalize-forms)
 ;;; :open-bg, :open
                        ;; First open all files from :open-bg and then all files
                        ;; except the last :open file (push prepends to the list,
@@ -1202,7 +1286,20 @@ internal details, which are subject to change at any time."
                       for var in snippet-env collect
                       (if (listp var)
                           (list #'cons (macroexp-quote (car var)) (cadr var))
-                        `(cons ',var ,var)))))))))))))
+                        `(cons ',var ,var))))))))
+       (nreverse snippet-setup-forms)
+       (when nokill-buffers
+         ;; `nreverse' is technically unnecessary here, but it looks better.
+         `((ptemplate-nokill-snippets ,@(nreverse nokill-buffers)))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
+
+;;; Fix spell checking
+;; LocalWords: ptemplate
+;; LocalWords: yasnippet
+;; LocalWords: .el
+
+;; Local Variables:
+;; fill-column: 79
+;; End:

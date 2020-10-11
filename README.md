@@ -113,8 +113,10 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :remap-rec Like :remap, but use `ptemplate-remap-rec` instead.
 - :map Syntax sugar for `ptemplate-map`.
 - :inherit Syntax sugar for `ptemplate-inherit`.
+- :late Like :init, but after :inherit
 - :open-bg Open target files in the background at the end of expansion.
 - :open Open target files in the foreground at the end of expansion.
+- :nokill Don't kill the following buffers in `ptemplate-snippet-chain-next`
 
 For details, see `M-x describe-function ptemplate!`.
 
@@ -135,6 +137,13 @@ Some other useful functions include:
   `ptemplate-include-overriding` is to `ptemplate-include`.
 - `ptemplate-with-file-sandbox`: execute BODY with a detached file map (use to
   modify an inherited template)
+  
+ptemplate also includes facilities to configure snippet-chain buffers further:
+- `ptemplate-snippet-setup`: configure some snippet-chain targets using LISP
+  forms, run before snippet insertion.
+- `ptemplate-set-snippet-kill-p`: in a snippet-chain buffer, can be used to mark
+  it as not to be killed.
+- `ptemplate-nokill-snippets`: `ptemplate!`'s :nokill, but as a function.
 
 # Configuration
 
