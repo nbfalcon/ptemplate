@@ -28,22 +28,26 @@
 ;; will then initialize the project for you. In the template you can have any
 ;; number of yasnippets or normal files.
 
-;; Security note: yasnippets allow arbitrary code execution, as do .ptemplate.el
-;; files. DO NOT EXPAND UNTRUSTED PTEMPLATES. Ptemplate DOES NOT make ANY
-;; special effort to protect against malicious templates.
+;; Security note: yasnippets allow arbitrary code execution, as do
+;; .ptemplate.el files. DO NOT EXPAND UNTRUSTED TEMPLATES. ptemplate DOES NOT
+;; make ANY special effort to protect against malicious templates.
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'subr-x)                       ; `string-join'
 
-;;; `declare-function'
+;;; global `declare-function'
 (declare-function yas-minor-mode "yasnippet" (&optional arg))
 (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
 
 ;;; snippet-chain subsystem
-(defvar-local ptemplate--snippet-chain nil
-  "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
+
+(cl-defstruct (ptemplate--snippet-chain
+               (:constructor ptemplate--snippet-chain<-new))
+  (snippets
+   nil :documentation
+   "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
 Template directories can have any number of yasnippet files.
 These need to be filled in by the user. To do this, there is a
 snippet chain: a list of snippets and their target files or
@@ -56,50 +60,44 @@ chain is displayed. Buffers are appended to this list when the
 user presses \\<ptemplate-snippet-chain-mode-map>
 \\[ptemplate-snippet-chain-later].
 
-To facilitate the expansion of multiple templates at once, the
-snippet chain must be buffer-local. However, if each buffer has
-its own list, updates to it wouldn't be synced across buffers
-stored for later finalization. Such buffers would contain already
-finalized filenames in their snippet chain. Because of this, a
-solution needs to be devised to share a buffer local value
-between multiple buffers, and `ptemplate--snippet-chain' works as
-follows: This variable actually stores a cons, the `cdr' of which
-points to the actual snippet chain, as described above, the `car'
-always being ignored. This way \(`pop' (`cdr'
-`ptemplate--snippet-chain')\) modifies it in a way that is shared
-between all buffers.
+See also `ptemplate--snippet-chain->start'.")
+  (env
+   nil :documentation
+   "List of variables to set in snippet-chain buffers.
+Alist of (SYMBOL . VALUE).
 
-See also `ptemplate--snippet-chain-start'.")
-
-(defvar-local ptemplate--snippet-chain-finalize-hook nil
-  "Hook to run after the snippet chain finishes.
+All variables will be made buffer-local before being set in each
+snippet-chain buffer. `ptemplate--snippet-chain-context' shouldn't be
+included.")
+  (finalize-hook
+   nil :documentation
+   "Hook to run after the snippet chain finishes.
 Each function therein gets called without arguments.
 
 This hook needs to be a separate variable and cannot be
-implemented by simply appending it to `ptemplate--snippet-chain'.
-This is because in that case it would get executed too early if
+implemented by simply appending it to the SNIPPETS field, because
+because in that case it would get run too early if
 `ptemplate--snippet-chain-later' were called at least once, as
 then it wouldn't be the last element anymore.")
-
-(defvar-local ptemplate--snippet-chain-env nil
-  "List of variables to set in snippet-chain buffers.
-Alist of (SYMBOL . VALUE).
-`ptemplate--snippet-chain-finalize-hook',
-`ptemplate--snippet-chain-env', ... should not be included. All
-variables will be made buffer-local before being set, so
-`defvar-local' is not necessary.")
-
-(defvar-local ptemplate--snippet-chain-newbuf-hook nil
-  "Hook run after each snippet-chain buffer is created.
+  (newbuf-hook
+   nil :documentation
+   "Hook run after each snippet-chain buffer is created.
 Can be used to configure `ptemplate--snippet-chain-nokill'. Each
-function therein is called with no arguments.")
+function therein is called with no arguments."))
 
 (defvar-local ptemplate--snippet-chain-nokill nil
   "If set in a snippet-chain buffer, don't kill it.
-Normally, `ptemplate--snippet-chain-continue' kills the buffer
+Normally, `ptemplate--snippet-chain->continue' kills the buffer
 when moving on. If this variable is set, don't do that. Useful
 when one wants to keep the cursor when reopening a snippet chain
 file.")
+
+(defvar ptemplate--snippet-chain-context nil
+  "The instance of `ptemplate--snippet-chain'.
+facilitate parallel template expansion. All snippet-chain
+This variable is always either `let' bound or buffer-local, to
+functions operate on this variable, as defined in their calling
+environment.")
 
 (defun ptemplate--read-file (file)
   "Read FILE and return its contents a string."
@@ -120,44 +118,38 @@ This mode is only for keybindings."
 (defun ptemplate--setup-snippet-env (snippet-env)
   "Set all \(SYMBOL . VALUE\) pairs in SNIPPET-ENV.
 Variables are set buffer-locally."
-  ;; setup snippet env
-  (cl-loop for (sym . val) in snippet-env do
-           (set (make-local-variable sym) val)))
+  (let ((symbols (mapcar #'car snippet-env))
+        (values (mapcar #'cdr snippet-env)))
+    (mapc #'make-local-variable symbols)
+    (cl-mapcar #'set symbols values)))
 
-(defun ptemplate--snippet-chain-continue ()
+(defun ptemplate--snippet-chain->continue ()
   "Make the next snippet/buffer in the snippet chain current."
   ;; the actual payload (which is always in the `cdr'). (See
   ;; `ptemplate--snippet-chain' for details).
-  (let* ((realchain (cdr ptemplate--snippet-chain))
+  (let* ((context ptemplate--snippet-chain-context)
+         (realchain (ptemplate--snippet-chain-snippets context))
          (next (car realchain)))
     (when realchain
       ;; if the snippet chain is empty, pop fails.
-      (pop (cdr ptemplate--snippet-chain)))
+      (pop (ptemplate--snippet-chain-snippets context)))
 
     (cond
-     ((null next) (run-hooks 'ptemplate--snippet-chain-finalize-hook))
+     ((null next)
+      (mapc #'funcall (ptemplate--snippet-chain-finalize-hook context)))
      ((bufferp next) (switch-to-buffer next))
      ((consp next)
-      (let ((oldbuf (current-buffer))
-            (next-file (cdr next))
+      (let ((target (cdr next))
             (source-file (car next)))
         (require 'yasnippet)
-        (with-current-buffer (find-file-noselect next-file)
-          ;; Inherit snippet chain variables. NOTE: `ptemplate--snippet-chain',
-          ;; ... are `defvar-local', so need not be made buffer-local.
-          (dolist (sym '(ptemplate--snippet-chain
-                         ptemplate--snippet-chain-env
-                         ptemplate--snippet-chain-finalize-hook
-                         ptemplate--snippet-chain-newbuf-hook
-                         ;; HACKING: add new snippet chain variables before
-                         ;; here, if they need to be inherited.
-                         ))
-            (set sym (buffer-local-value sym oldbuf)))
-          (ptemplate--setup-snippet-env ptemplate--snippet-chain-env)
+        (with-current-buffer (find-file-noselect target)
+          (make-local-variable 'ptemplate--snippet-chain-context)
 
+          (ptemplate--setup-snippet-env
+           (ptemplate--snippet-chain-env context))
           ;; let the user configure the buffer, with the snippet-env already
           ;; bound.
-          (run-hooks 'ptemplate--snippet-chain-newbuf-hook)
+          (mapc #'funcall (ptemplate--snippet-chain-newbuf-hook context))
 
           ;; "yasnippet needs a properly set-up `yas-minor-mode'"
           (yas-minor-mode 1)
@@ -172,57 +164,34 @@ The buffer is killed after calling this. If the snippet chain is
 empty, do nothing."
   (interactive)
   (save-buffer 0)
-  (if (cdr ptemplate--snippet-chain)
-      (let ((old-buf (current-buffer)))
-        ;; mitigate "flickering" to old buffer; first, acquire the new one and
-        ;; then kill the old one.
-        (ptemplate--snippet-chain-continue)
-        (if ptemplate--snippet-chain-nokill
-            ;; if we don't kill it, we must at least disable the snippet-chain
-            ;; mode for it, so the keybindings go away. NOTE that the
-            ;; snippet-chain variables won't though.
-            (ptemplate-snippet-chain-mode -1)
-          (kill-buffer old-buf)))
-    ;; EDGE CASE: if no buffer follows, `ptemplate--finalize-hook' must be
-    ;; run, but at the *very* end, meaning this buffer must already be dead by
-    ;; then and nothing must happen after. The following issue prompted this:
-    ;; if the last snippet chain buffer's target file is opened in `find-file'
-    ;; in `ptemplate!''s :finalize block, it would not show up, as `find-file'
-    ;; will find the snippet chain buffer, which gets killed. (in: C/C++ meson
-    ;; project).
-    (let ((finalize ptemplate--snippet-chain-finalize-hook)
-          (env ptemplate--snippet-chain-env))
-      (if ptemplate--snippet-chain-nokill
-          (ptemplate-snippet-chain-mode -1)
-        (kill-buffer))
-      ;; HACK we cannot use `ptemplate--setup-snippet-env', since this isn't a
-      ;; snippet chain buffer, so we must resort to abusing `cl-progv'.
-      (cl-progv (mapcar #'car env) (mapcar #'cdr env)
-        ;; override in the context of the *new* buffer; the previous had been
-        ;; killed, and it isn't part of the snippet chain, so
-        ;; `ptemplate--snippet-chain-finalize-hook' is nil for it
-        ;; (buffer-local). This means that the hook won't run, so override it
-        ;; *again*, buffer-locally, for the pre-snippet-chain buffer. This is
-        ;; horrible, but luckily confined to the snippet-chain subsystem.
-        (let ((ptemplate--snippet-chain-finalize-hook finalize))
-          (ptemplate--snippet-chain-continue))))))
+  ;; EDGE CASE: this could be the last buffer
+  (let ((context ptemplate--snippet-chain-context))
+    (if ptemplate--snippet-chain-nokill
+        (ptemplate-snippet-chain-mode -1)
+      (kill-buffer))
+    ;; the `let' above overrides the buffer-local binding
+    (let ((ptemplate--snippet-chain-context context))
+      (ptemplate--snippet-chain->continue))))
 
 (defun ptemplate-snippet-chain-later ()
   "Save the current buffer to be expanded later.
 Use this if you are not sure yet what expansions to use in the
-current snipept and want to decide later, after looking at
+current snippet and want to decide later, after looking at
 others."
   (interactive)
-  (unless ptemplate--snippet-chain
+  (unless ptemplate--snippet-chain-context
     (user-error "No more snippets to expand"))
-  ;; snippet chain cannot be nil, so nconc will append to it, modifying it
+  ;; snippet chain cannot be nil, so `nconc' will append to it, modifying it
   ;; across all buffers.
-  (nconc ptemplate--snippet-chain (list (current-buffer)))
-  (ptemplate--snippet-chain-continue))
+  (nconc (ptemplate--snippet-chain-snippets
+          ptemplate--snippet-chain-context)
+         (list (current-buffer)))
+  (ptemplate--snippet-chain->continue))
 
-(defun ptemplate--snippet-chain-start (snippets &optional env finalize-hook newbuf-hook)
+(defun ptemplate--snippet-chain->start
+    (snippets &optional env finalize-hook newbuf-hook)
   "Start a snippet chain with SNIPPETS.
-For details, see `ptemplate--snippet-chain'.
+For details, see `ptemplate--snippet-chain-context'.
 
 ENV (alist of (SYMBOL . VALUE)) specifies the variables to set in
 each new buffer.
@@ -232,11 +201,11 @@ to `ptemplate--snippet-chain-finalize-hook'.
 
 NEWBUF-HOOK is run each time a new snippet chain buffer is
 created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
-  (let ((ptemplate--snippet-chain (cons 'ptemplate-snippet-chain snippets))
-        (ptemplate--snippet-chain-env env)
-        (ptemplate--snippet-chain-finalize-hook finalize-hook)
-        (ptemplate--snippet-chain-newbuf-hook newbuf-hook))
-    (ptemplate--snippet-chain-continue)))
+  (let ((ptemplate--snippet-chain-context
+         (ptemplate--snippet-chain<-new
+          :snippets snippets :env env :finalize-hook finalize-hook
+          :newbuf-hook newbuf-hook)))
+    (ptemplate--snippet-chain->continue)))
 
 ;;; common utility functions
 (defun ptemplate--unix-to-native-path (path)
@@ -621,7 +590,7 @@ manually copies files around in its .ptemplate.el :init block.
 
            finally do
            (run-hooks 'ptemplate--before-snippet-hook)
-           (ptemplate--snippet-chain-start
+           (ptemplate--snippet-chain->start
             yasnippets snippet-env
             (ptemplate--copy-context-finalize-hook context)
             (ptemplate--copy-context-newbuf-hook context))))
@@ -1296,10 +1265,20 @@ internal details, which are subject to change at any time."
 ;;; ptemplate.el ends here
 
 ;;; Fix spell checking
+;; LocalWords: Nikita
+;; LocalWords: Bloshchanevich
+;; LocalWords: UNTRUSTED
+;; LocalWords: emacs
+;; LocalWords: ispell
 ;; LocalWords: ptemplate
 ;; LocalWords: yasnippet
-;; LocalWords: .el
+;; LocalWords: yasnippets
+;; LocalWords: el
+;; LocalWords: Alist
+;; LocalWords: alist
+;; LocalWords: ENV
 
 ;; Local Variables:
 ;; fill-column: 79
+;; ispell-dictionary: "en"
 ;; End:

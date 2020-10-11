@@ -19,17 +19,8 @@ snippet alist ("snippet chain") must be shared between buffers. This cannot be
 done with global variables however, as that would clash with ptemplate's
 multiple-template expansion support.
 
-The sharing is done trough a set of global variables that are always
-buffer-locally bound. The snippet chain alist itself should be mutably shared,
-and this is realized by having a cons of the form (\'ptemplate-snippet-chain .
-ALIST) be setup in each new buffer with the value taken from the previous one,
-or =ptemplate--snippet-chain-start=. The =cdr= of this cons is modified, and for
-some reason those modifications are reflected everywhere else. All other
-variables are shared by =setq='ing them up the same way, but they can be
-read-only, so such tricks aren't necessary.
-
-This approach should not break even if Emacs can operate without a current
-buffer, as let could then override the global value.
+The sharing is done by setting the same `ptemplate--snippet-chain` structure
+instance in each buffer, buffer-locally.
 ** Important functions
 *** =ptemplate--snippet-chain-continue=
 This is the core function that advances the snippet chain. It is responsible for
