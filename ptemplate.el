@@ -79,7 +79,7 @@ Each function therein gets called without arguments.
 
 This hook needs to be a separate variable and cannot be
 implemented by simply appending it to the SNIPPETS field, because
-because in that case it would get run too early if
+in that case it would get run too early if
 `ptemplate--snippet-chain-later' were called at least once, as
 then it wouldn't be the last element anymore.")
   (newbuf-hook
@@ -95,10 +95,15 @@ when moving on. If this variable is set, don't do that. Useful
 when one wants to keep the cursor when reopening a snippet chain
 file.")
 
+(defvar-local ptemplate--snippet-chain-next-hook nil
+  "Run at the very start of `ptemplate-snippet-chain-next'.
+Can be used to modify the buffer before it is saved, add a
+`kill-buffer-hook', ....")
+
 (defvar ptemplate--snippet-chain-context nil
   "The instance of `ptemplate--snippet-chain'.
-facilitate parallel template expansion. All snippet-chain
-This variable is always either `let' bound or buffer-local, to
+facilitate parallel template expansion. All snippet-chain This
+variable is always either `let' bound or buffer-local, to
 functions operate on this variable, as defined in their calling
 environment.")
 
@@ -166,8 +171,8 @@ Variables are set buffer-locally."
 The buffer is killed after calling this. If the snippet chain is
 empty, do nothing."
   (interactive)
+  (run-hooks 'ptemplate--snippet-chain-next-hook)
   (save-buffer 0)
-  ;; EDGE CASE: this could be the last buffer
   (let ((context ptemplate--snippet-chain-context))
     (if ptemplate--snippet-chain-nokill
         (ptemplate-snippet-chain-mode -1)
@@ -1043,6 +1048,7 @@ Return the result of the last BODY form."
            (nconc ptemplate--template-files (cdr --ptemplate-sandbox-result--)))
      (car --ptemplate-sandbox-result--)))
 
+;;; snippet configuration
 (defun ptemplate-target-relative ()
   "Get the expansion-target relative path of the buffer.
 Only for use in `ptemplate-snippet-setup'"
@@ -1060,6 +1066,30 @@ can configure them further. All variables defined in
                  (lambda () "Run to configure snippet-chain buffers."
                    (when (member (ptemplate-target-relative) snippets)
                      (funcall callback))))))
+
+(defmacro ptemplate-snippet-setup! (snippets &rest body)
+  "Like `ptemplate--snippet-setup', but as a macro.
+SNIPPETS shall be an expression yielding a list snippet-chain
+  (declare (indent 1))
+expansion targets. BODY will be executed for each of them."
+  `(apply #'ptemplate-snippet-setup
+          (lambda () "Run to configure snippet-chain buffers." ,@body)
+          ,snippets))
+
+(defun ptemplate-add-snippet-next-hook (&rest functions)
+  "Add `ptemplate-snippet-chain-next' functions.
+Each function in FUNCTIONS is run at the start of the above
+function.
+
+Only for use with `ptemplate-snippet-setup'."
+  (dolist (fn functions)
+    (add-hook 'ptemplate--snippet-chain-next-hook fn nil t)))
+
+(defmacro ptemplate-add-snippet-next-hook! (&rest body)
+  "Like `ptemplate-add-snippet-next-hook', but as a macro.
+Add a lambda containing each form in BODY."
+  `(ptemplate-add-snippet-next-hook
+    (lambda () "Run in `ptemplate-snippet-chain-next'." ,@body)))
 
 (defun ptemplate-set-snippet-kill-p (&optional kill-p)
   "Set whether the snippet buffer should be killed.
