@@ -88,6 +88,18 @@ then it wouldn't be the last element anymore.")
 Can be used to configure `ptemplate--snippet-chain-nokill'. Each
 function therein is called with no arguments."))
 
+(defun ptemplate--copy-context<-merge-hooks (contexts)
+  "Merge all hook-fields of CONTEXTS.
+CONTEXTS is a list of `ptemplate--copy-context's. The fields that
+are not FILE-MAP of each CONTEXT are concatenated using `nconc',
+and the result, also a `ptemplate--copy-context', returned."
+  (ptemplate--copy-context<-new
+   :snippet-env (mapcan #'ptemplate--copy-context-snippet-env contexts)
+   :snippet-conf-hook
+   (mapcan #'ptemplate--copy-context-snippet-conf-hook contexts)
+   :before-snippets (mapcan #'ptemplate--copy-context-before-snippets contexts)
+   :finalize-hook (mapcan #'ptemplate--copy-context-finalize-hook contexts)))
+
 (defvar-local ptemplate--snippet-chain-nokill nil
   "If set in a snippet-chain buffer, don't kill it.
 Normally, `ptemplate--snippet-chain->continue' kills the buffer
@@ -220,7 +232,7 @@ created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
   "Replace slashes in PATH with the platform's directory separator.
 PATH is a file path, as a string, assumed to use slashes as
 directory separators. On platform's where that character is
-different \(MSDOS, Windows\), replace such slashes with the
+different \(MS DOS, Windows\), replace such slashes with the
 platform's equivalent."
   (declare (side-effect-free t))
   (if (memq system-type '(msdos windows-nt))
@@ -289,9 +301,9 @@ removed."
 
 (defun ptemplate--autoyas-expand (src target &optional expand-env)
   "Expand yasnippet in file SRC to file TARGET.
-Expansion is done \"headless\", that is without any UI.
+Expansion is done \"headless\", that is without showing buffers.
 EXPAND-ENV is an environment alist like in
-`ptemplate--snippet-env'."
+`ptemplate--snippet-chain-env'."
   (with-temp-file target
     (require 'yasnippet)
 
@@ -305,49 +317,22 @@ EXPAND-ENV is an environment alist like in
 A list of the full paths of each element is returned. The special
 directories \".\" and \"..\" are ignored."
   (cl-delete-if (lambda (f) (or (string= (file-name-base f) ".")
-                                (string= (file-name-base f) "..")))
+                           (string= (file-name-base f) "..")))
                 (directory-files dir t)))
 
-;;; `ptemplate!' variables
-;; HACKING NOTE: since ptemplate supports scripting within .ptemplate.el files,
-;; certain variables need to be made available to that file for use with the
-;; `ptemplate!' macro to hook into expansion. These variables should be defined
-;; within this block, and made available by using `let' within
-;; `ptemplate-expand-template'. `let' is used instead of `setq', as ptemplate
-;; supports the expansion of multiple templates at once. This means that these
-;; variables need to be overriden in separate contexts, potentially at once,
-;; which was traditionally implemented using dynamic-binding. However, using
-;; dynamic binding is recommended against; to still support the features of the
-;; latter, Emacs allows `let' to override global variables in dynamic-binding
-;; style, a feature made use of in `ptemplate-expand-template'.
-(defvaralias 'ptemplate--after-copy-hook 'ptemplate--before-snippet-hook
-  "Hook run after copying files.
-
-Currently, this hook is always run before snippet expansion, and
-is as such an alias for `ptemplate--before-snippet-hook', which
-see.")
-
-(defvar ptemplate--before-snippet-hook nil
-  "Hook run before expanding yasnippets.
-Each function therein shall take no arguments.
-
-These variables are hooks to allow multiple ptemplate! blocks
-that specify :before-yas, :after, ....")
-
-(defvar ptemplate--finalize-hook nil
-  "Hook to run after template expansion finishes.
-At this point, no more files need to be copied and no more
-snippets need be expanded.
-
-See also `ptemplate--before-expand-hooks'.")
-
-(defvar ptemplate--snippet-env nil
-  "Environment used for snippet expansion.
-Alist of (SYMBOL . VALUE), like `ptemplate--snippet-chain-env'
-but for the entire template.")
-
-(defvar ptemplate--template-files nil
-  "Alist mapping template source files to their targets.
+;;; `ptemplate--copy-context'
+(cl-defstruct (ptemplate--copy-context
+               (:constructor ptemplate--copy-context<-new)
+               (:copier ptemplate--copy-context<-copy))
+  "Holds data needed by ptemplate's copy phase.
+To acquire this state, a template's file need to be listed and
+the .ptemplate.el needs to be evaluated against it.
+`ptemplate--copy-context->execute'. A `let'-bound, global
+instance of this that is used by the .ptemplate.el API is in
+`ptemplate--cur-copy-context'."
+  (file-map
+   nil :documentation
+   "Alist mapping template source files to their targets.
 Alist \(SRC . TARGET\), where SRC and TARGET are strings (see
 `ptemplate-map' for details). Additionally, SRC may be a cons of
 the form \(PREFIX . SRC\), in which case the source path becomes
@@ -355,12 +340,35 @@ PREFIX + SRC. TARGET may be nil, in which case nothing shall be
 copied.
 
 This variable is always `let'-bound.")
-
-(defvar ptemplate--newbuf-hook nil
-  "Hook run when creating snippet-chain buffers.
+  (snippet-env
+   nil :documentation
+   "Environment used for snippet expansion.
+Alist of (SYMBOL . VALUE), like `ptemplate--snippet-chain-env'
+but for the entire template.")
+  (snippet-conf-hook
+   nil :documentation
+   "Hook run when creating snippet-chain buffers.
 Corresponds to `ptemplate--snippet-chain-newbuf-hook'.")
+  (before-snippets
+   nil :documentation
+   "Hook run before expanding yasnippets.
+Each function therein shall take no arguments.
 
-;;; HACKING: add new template variables before here
+These variables are hooks to allow multiple ptemplate! blocks
+that specify :before-yas, :after, ....")
+  (finalize-hook
+   nil :documentation
+   "Hook to run after template expansion finishes.
+At this point, no more files need to be copied and no more
+snippets need be expanded.
+
+See also `ptemplate--before-expand-hooks'."))
+
+(defvar ptemplate--cur-copy-context nil
+  "Current instance of the `ptemplate--copy-context'.
+This variable is `let'-bound when evaluating a template and
+modified by the helper functions defined in the \".ptemplate.el
+API\" section.")
 
 (defvar ptemplate-target-directory nil
   "Target directory of ptemplate expansion.
@@ -370,129 +378,6 @@ platform-specific directory separator, so you can use this with
 
 (defvar ptemplate-source-directory nil
   "Source directory of ptemplate expansion.")
-
-;;; `ptemplate--copy-context'
-(defmacro ptemplate--define-copy-context (name docstring &rest fields)
-  "Helper macro to generate the `ptemplate--copy-context'.
-NAME is the name of the struct to be generated and DOCSTRING its
-docstring.
-
-Each field in FIELDS shall be a list, the first element of which
-is the name of the corresponding struct field followed by a
-plist. It must have a :var key, which specifies the global
-variable this field corresponds to, and is used to generate the
-<name><-from-env function. The struct's constructor is
-<name><-new and its copier is <name><-copy.
-
-This macro generates three additional functions:
-
-<name><-from-env: Yield a copy context from the global
-environment, with each field acquired from the corresponding
-global variable, as specified in :var.
-
-<name>->to-env: Set the global environment based on the copy
-context. The opposite of <name><-from-env.
-
-<name>->merge-hooks: Taking any number of copy contexts
-\(&rest\), yields a new copy context by merging each of their
-fields in order \(with `nconc'\), except for those that have the
-:merge-hooks key explicitly set to nil \(defaults to t\)."
-  (declare (doc-string 2) (indent 1))
-  (let ((constructor (intern (format "%s<-new" name)))
-        (copier (intern (format "%s<-copy" name)))
-        (from-env (intern (format "%s<-from-env" name)))
-        (to-env (intern (format "%s->to-env" name)))
-        (merge-hooks (intern (format "%s<-merge-hooks" name)))
-        (with-vars-nil (intern (format "%s->with-vars-nil" name))))
-    `(progn
-;;; `ptemplate--copy-context'
-       (cl-defstruct (,name (:constructor ,constructor)
-                            (:copier ,copier)) ,docstring
-                            ,@(cl-loop for (fname . props) in fields
-                                       for var = (plist-get props :var)
-                                       for field-doc = (format "Corresponds to variable `%s'."
-                                                               var)
-                                       collect `(,fname nil :documentation ,field-doc)))
-;;; `ptemplate--copy-context<-from-env'
-       (defun ,from-env ()
-         ,(format
-           "Make a `%s' from the current environment.
-All fields are initialized from their corresponding globals, as
-bound in the current environment, which could be `let'-bound.
-
-The opposite of `%s->to-env'." name name)
-         (,constructor ,@(cl-loop for (fname . props) in fields
-                                  collect (intern (format ":%s" fname))
-                                  collect (plist-get props :var))))
-;;; `ptemplate--copy-context->to-env'
-       (defun ,to-env (--context--)
-         ,(format
-           "Elevate --CONTEXT-- into the caller's environment.
-The opposite of `%s<-from-env'. Globals corresponding to
---CONTEXT--'s fields are set to their values, in the current
-environment, which could be \(`let'-bound\).
-
---CONTEXT-- shall be a %s." name name)
-         (setq
-          ,@(cl-loop for (fname . props) in fields
-                     collect (plist-get props :var)
-                     collect `(,(intern (format "%s-%s" name fname)) --context--))))
-;;; `ptemplate--copy-context<-merge-hooks'
-       (defun ,merge-hooks (&rest --contexts--)
-         ,(format
-           "Merge --CONTEXTS--'s \"hook\" members.
-CONTEXTS is a list of `%s's, whose fields are merged using
-`nconc', but only those that don't specify :merge-hooks nil in
-`ptemplate--define-copy-context'.
-
-Return the result, which is a `%s'.
-
-Fields not merged are: %s."
-           ;; FIXME: if there are many :merge-hooks nil fields, the docstring
-           ;; will not be filled properly. This won't be a problem for
-           ;; `ptemplate' though, so this has a very low priority.
-           name name (string-join
-                      (cl-loop for (fname . props) in fields
-                               if (and (plist-member props :merge-hooks)
-                                       (not (plist-get props :merge-hooks)))
-                               collect (symbol-name fname)) ", "))
-         (,constructor
-          ,@(cl-loop for (fname . props) in fields
-                     collect (intern (format ":%s" fname))
-                     collect
-                     (if
-                         (if (plist-member props :merge-hooks)
-                             ;; NOTE: by default, *do* merge hooks; it is
-                             ;; usually only file-map that shouldn't be merged.
-                             (plist-get props :merge-hooks) t)
-                         `(mapcan #',(intern (format "%s-%s" name fname))
-                                  --contexts--)
-                       'nil))))
-       (defmacro ,with-vars-nil (&rest body)
-         "`let'-bind the copy context's variables to nil.
-Execute BODY in an environment where the variables to which the
-fields correspond are bound to nil. Return the result of the last
-expression."
-         (declare (debug t))
-         (backquote
-          (let ,(cl-loop for (_ . props) in fields
-                         for var = (plist-get props :var)
-                         collect var)
-            ,',@body)))
-;;; HACKING: add new to-be-generated copy-context functions before here
-       )))
-
-(ptemplate--define-copy-context ptemplate--copy-context
-  "Holds data needed by ptemplate's copy phase.
-To acquire this state, a template's file need to be listed and
-the .ptemplate.el needs to be evaluated against it.
-`ptemplate--copy-context->execute'"
-  (before-snippets :var ptemplate--before-snippet-hook)
-  (finalize-hook :var ptemplate--finalize-hook)
-  (snippet-env :var ptemplate--snippet-env)
-  (newbuf-hook :var ptemplate--newbuf-hook)
-
-  (file-map :var ptemplate--template-files :merge-hooks nil))
 
 (defun ptemplate--eval-template (source &optional target)
   "Evaluate the template given by SOURCE.
@@ -503,19 +388,18 @@ templates that don't make use of `ptemplate-target-directory' in
 :init. Both SOURCE and TARGET are directories, with an optional
 trailing slash."
   (setq source (file-name-as-directory source))
-  (ptemplate--copy-context->with-vars-nil
-   (let ((dotptemplate (concat source ".ptemplate.el"))
-         ;; the dotptemplate file should know about source and target.
-         (ptemplate-source-directory source)
-         (ptemplate-target-directory
-          (and target (file-name-as-directory target))))
-     (setq ptemplate--template-files (ptemplate--list-template-files source))
+  (when target (setq target (file-name-as-directory target)))
+  (let ((ptemplate-source-directory source)
+        (ptemplate-target-directory target)
+        (ptemplate--cur-copy-context
+         (ptemplate--copy-context<-new
+          :file-map (ptemplate--list-template-files source)))
+        (dotptemplate (concat source ".ptemplate.el")))
+    (when (file-exists-p dotptemplate)
 ;;; load .ptemplate.el
-     (when (file-exists-p dotptemplate)
-       ;; NOTE: arbitrary code execution
-       (load-file dotptemplate))
-
-     (ptemplate--copy-context<-from-env))))
+      ;; NOTE: arbitrary code execution
+      (load-file dotptemplate))
+    ptemplate--cur-copy-context))
 
 (defun ptemplate--prune-duplicate-files (files dup-cb)
   "Find and remove duplicates in FILES.
@@ -601,7 +485,7 @@ manually copies files around in its .ptemplate.el :init block.
            (ptemplate--snippet-chain->start
             yasnippets snippet-env
             (ptemplate--copy-context-finalize-hook context)
-            (ptemplate--copy-context-newbuf-hook context))))
+            (ptemplate--copy-context-snippet-conf-hook context))))
 
 ;;; Public API
 (defun ptemplate--list-dir-dirs (dir)
@@ -799,10 +683,7 @@ If even that is nil, use `default-directory'."
   (interactive (let ((template (funcall ptemplate-template-prompt-function
                                         (ptemplate-list-project-templates))))
                  (list template (ptemplate--prompt-target template))))
-  (when (file-directory-p target)
-    ;; NOTE: the error message should mention the user-supplied target (not
-    ;; necessarily with a slash at the end), so do this buffer
-    ;; (file-name-as-directory).
+  (when (file-exists-p target)
     (user-error "Directory %s already exists" target))
   (ptemplate-expand-template source target))
 
@@ -879,11 +760,11 @@ SRC."
 (defun ptemplate--prune-template-files (regex)
   "Remove all template whose source files match REGEX.
 This function is only supposed to be called from `ptemplate!'."
-  (setq ptemplate--template-files
+  (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
         (cl-delete-if
          (lambda (src-targetf)
            (string-match-p regex (ptemplate--map-relsrc src-targetf)))
-         ptemplate--template-files)))
+         (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
 
 (defun ptemplate--override-files (base-files override)
   "Override all mappings in BASE-FILES with those in OVERRIDE.
@@ -896,7 +777,7 @@ Store the result in `ptemplate--template-files'."
     ;; not to be taken from BASE-FILES.
     (dolist (target override)
       (puthash (cdr target) t mapped-targets))
-    (setq ptemplate--template-files
+    (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
           ;; OVERRIDE + all files not mapped to in OVERRIDE from BASE-FILES
           (nconc override (cl-delete-if
                            (lambda (m) (gethash (cdr m) mapped-targets))
@@ -908,7 +789,7 @@ PATH is transformed according to it and the result made a
 directory path."
   (file-name-as-directory (ptemplate--normalize-user-path path)))
 
-;;; .ptemplate.el api
+;;; .ptemplate.el API
 (defun ptemplate-map (src target)
   "Map SRC to TARGET for expansion.
 SRC is a path relative to the ptemplate being expanded and TARGET
@@ -917,9 +798,9 @@ is a path relative to the expansion target.
 SRC can also be nil, in which case nothing would be copied, but
 TARGET would shadow mappings from inherited or included
 templates."
-  (add-to-list 'ptemplate--template-files
-               (cons (when src (ptemplate--normalize-user-path src))
-                     (ptemplate--normalize-user-path target))))
+  (cl-pushnew (cons (when src (ptemplate--normalize-user-path src))
+                    (ptemplate--normalize-user-path target))
+              (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
@@ -946,7 +827,8 @@ remap it to that same directory relative to TARGET."
   (let ((remap-regex
          (concat "\\`" (regexp-quote (ptemplate--normalize-user-path-dir src))))
         (target (ptemplate--normalize-user-path-dir target)))
-    (dolist (file ptemplate--template-files)
+    (dolist (file (ptemplate--copy-context-file-map
+                   ptemplate--cur-copy-context))
       (setcdr file (replace-regexp-in-string
                     remap-regex target (cdr file) nil t)))))
 
@@ -975,12 +857,12 @@ The files defined in the template take precedence. To get the
 other behaviour, use `ptemplate-include-override' instead."
   (ptemplate--override-files
    (mapcan #'ptemplate--list-template-dir-files-abs dirs)
-   ptemplate--template-files))
+   (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
 (defun ptemplate-include-override (&rest dirs)
   "Like `ptemplate-include', but files in DIRS override."
   (ptemplate--override-files
-   ptemplate--template-files
+   (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
    (mapcan #'ptemplate--list-template-dir-files-abs dirs)))
 
 (defun ptemplate--inherit-templates (srcs)
@@ -995,14 +877,13 @@ which refer to their corresponding sources \(see
 `ptemplate--file-map-absolute'\).
 
 See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
-  (let ((inherit-contexts (mapcar #'ptemplate--eval-template srcs))
-        ;; prevent `ptemplate--copy-context->to-env' from overriding the global
-        ;; file-map (set to nil, as `ptemplate--copy-context<-merge-hooks' leaves
-        ;; :file-map nil)
-        ptemplate--template-files)
-    (ptemplate--copy-context->to-env
-     (apply #'ptemplate--copy-context<-merge-hooks
-            (append inherit-contexts (list (ptemplate--copy-context<-from-env)))))
+  (let* ((inherit-contexts (mapcar #'ptemplate--eval-template srcs))
+         (merged-context
+          (ptemplate--copy-context<-merge-hooks
+           (append inherit-contexts (list ptemplate--cur-copy-context)))))
+    (setf (ptemplate--copy-context-file-map merged-context)
+          (ptemplate--copy-context-file-map ptemplate--cur-copy-context))
+    (setq ptemplate--cur-copy-context merged-context)
     (cl-mapcar #'ptemplate--file-map-absolute srcs
                (mapcar #'ptemplate--copy-context-file-map inherit-contexts))))
 
@@ -1015,16 +896,22 @@ be used to override mappings from SRCS. Mappings from templates
 that come earlier in SRCS take precedence over those from later
 templates. To ignore files from SRCS, map them from nil using
 :map or `ptemplate-map' before calling this function."
-  ;; NOTE: templates that come later in DIRS are overriden.
+  ;; NOTE: templates that come later in DIRS are overridden.
+  ;; FIXME no intermediate overriding
   (let ((to-inherit (apply #'nconc (ptemplate--inherit-templates srcs))))
-    (ptemplate--override-files to-inherit ptemplate--template-files)))
+    (ptemplate--override-files
+     to-inherit
+     (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
 
 (defun ptemplate-inherit-overriding (&rest srcs)
   "Like `ptemplate-inherit', but files in SRCS take precedence.
 Files from templates that come later in SRCS take precedence."
   (let ((to-inherit
          (apply #'nconc (nreverse (ptemplate--inherit-templates srcs)))))
-    (ptemplate--override-files ptemplate--template-files to-inherit)))
+    ;; FIXME
+    (ptemplate--override-files
+     (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
+     to-inherit)))
 
 (defun ptemplate-source (dir)
   "Return DIR as if relative to `ptemplate-source-directory'."
@@ -1055,26 +942,27 @@ Only for use in `ptemplate-snippet-setup'"
   (concat (ptemplate--unix-to-native-path "./")
           (file-relative-name buffer-file-name ptemplate-target-directory)))
 
-(defun ptemplate-snippet-setup (callback &rest snippets)
+(defun ptemplate-snippet-setup (snippets callback)
   "Run CALLBACK to configure SNIPPETS.
 SNIPPETS is a list of target-relative file snippet targets
 \(.yas\). If a yasnippet expands to them, CALLBACK is called and
 can configure them further. All variables defined in
 :snippet-env, :snippet-let, ... are available to it."
   (let ((snippets (mapcar #'ptemplate--normalize-user-path snippets)))
-    (add-to-list 'ptemplate--newbuf-hook
-                 (lambda () "Run to configure snippet-chain buffers."
-                   (when (member (ptemplate-target-relative) snippets)
-                     (funcall callback))))))
+    (cl-pushnew
+     (lambda () "Run to configure snippet-chain buffers."
+       (when (member (ptemplate-target-relative) snippets)
+         (funcall callback)))
+     (ptemplate--copy-context-snippet-conf-hook ptemplate--cur-copy-context))))
 
 (defmacro ptemplate-snippet-setup! (snippets &rest body)
   "Like `ptemplate--snippet-setup', but as a macro.
 SNIPPETS shall be an expression yielding a list snippet-chain
   (declare (indent 1))
 expansion targets. BODY will be executed for each of them."
-  `(apply #'ptemplate-snippet-setup
-          (lambda () "Run to configure snippet-chain buffers." ,@body)
-          ,snippets))
+  `(ptemplate-snippet-setup
+    ,snippets
+    (lambda () "Run to configure snippet-chain buffers." ,@body)))
 
 (defun ptemplate-add-snippet-next-hook (&rest functions)
   "Add `ptemplate-snippet-chain-next' functions.
@@ -1099,18 +987,22 @@ usually be killed. Use this function to change that to KILL-P.
 Only for use in `ptemplate-snippet-setup'."
   (setq ptemplate--snippet-chain-nokill (not kill-p)))
 
-(defun ptemplate-nokill-snippets (&rest snippets)
+(defun ptemplate-nokill-snippets (snippets)
   "Don't kill SNIPPETS after expansion.
 SNIPPETS is a list of target-relative file snippets \(.yas\)
 whose buffers should not be killed in
 `ptemplate-snippet-chain-next'."
-  (apply #'ptemplate-snippet-setup #'ptemplate-set-snippet-kill-p snippets))
+  (ptemplate-snippet-setup snippets #'ptemplate-set-snippet-kill-p))
+
+(defun ptemplate-nokill-snippets! (&rest snippets)
+  "Like `ptemplate-nokill-snippets', but SNIPPETS is &rest."
+  (ptemplate-nokill-snippets snippets))
 
 ;; NOTE: ;;;###autoload is unnecessary here, as `ptemplate!' is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
 ;; `ptemplate-expand-template', at which point `ptemplate' is already loaded.
 (defmacro ptemplate! (&rest args)
-  "Define a smart ptemplate with elisp.
+  "Define a smart ptemplate with Elisp.
 For use in .ptemplate.el files. ARGS is a plist-like list with
 any number of sections, specified as :<section name>
 FORM... (like in `use-package'). Sections can appear multiple
@@ -1280,10 +1172,10 @@ internal details, which are subject to change at any time."
                        ,@(when open-fg
                            (list (car open-fg)))))))
        (when snippet-env
-         `((setq
-            ptemplate--snippet-env
+         `((setf
+            (ptemplate--copy-context-snippet-env ptemplate--cur-copy-context)
             (nconc
-             ptemplate--snippet-env
+             (ptemplate--copy-context-snippet-env ptemplate--cur-copy-context)
              (list ,@(cl-loop
                       for var in snippet-env collect
                       (if (listp var)
@@ -1291,25 +1183,44 @@ internal details, which are subject to change at any time."
                         `(cons ',var ,var))))))))
        (nreverse snippet-setup-forms)
        (when nokill-buffers
-         ;; `nreverse' is technically unnecessary here, but it looks better.
-         `((ptemplate-nokill-snippets ,@(nreverse nokill-buffers)))))))))
+         ;; `nreverse' is technically unnecessary here, but it looks better in
+         ;; the template output.
+         `((ptemplate-nokill-snippets! ,(nreverse nokill-buffers)))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
 
 ;;; Fix spell checking
+;; LocalWords: UNTRUSTED
 ;; LocalWords: Nikita
 ;; LocalWords: Bloshchanevich
-;; LocalWords: UNTRUSTED
 ;; LocalWords: emacs
+;; LocalWords: Elisp
 ;; LocalWords: ispell
 ;; LocalWords: ptemplate
+;; LocalWords: ptemplate's
 ;; LocalWords: yasnippet
 ;; LocalWords: yasnippets
+;; LocalWords: yas
+;; LocalWords: autoyas
+;; LocalWords: nocopy
 ;; LocalWords: el
+;; LocalWords: elc
 ;; LocalWords: Alist
 ;; LocalWords: alist
+;; LocalWords: plist
 ;; LocalWords: ENV
+;; LocalWords: NEWBUF
+;; LocalWords: env
+;; LocalWords: DIRS
+;; LocalWords: SRC
+;; LocalWords: SRCS
+;; LocalWords: RSRC
+;; LocalWords: FSRC
+;; LocalWords: DUP
+;; LocalWords: FORMs
+;; LocalWords: CONTEXT's
+;; LocalWords: init
 
 ;; Local Variables:
 ;; fill-column: 79
