@@ -7,6 +7,7 @@
 
 (require 'ptemplate)
 (require 'ert)
+(eval-when-compile (require 'cl-lib))
 
 ;;; `defvar' declare
 (defvar ert-runner-test-path)
@@ -60,6 +61,17 @@ equivalent to result/, return nil and t otherwise."
       (ptemplate-expand-template template expand-dir)
       (ptemplate-test--cmpdir expand-dir result))))
 
+(defmacro ptemplate-test--with-fatal-dup-warning (&rest body)
+  "Fail if a template expansion has duplicate warnings.
+Execute BODY and fail the current `ert-deftest' if a template
+expansion within it produces warnings about duplicate file
+mappings. Return the value of the last BODY form."
+  `(cl-letf (((symbol-function #'ptemplate--warn-dup-mapping)
+              (lambda (prev cur)
+                (ert-fail (format "duplicate mapping: \"%S\" before \"%S\""
+                                  prev cur)))))
+     ,@body))
+
 (ert-deftest ptemplate-expansion ()
   "Verify that the expansion-test templates expand correctly.
 See test/rsc/expansion-tests/README.md for details."
@@ -67,8 +79,9 @@ See test/rsc/expansion-tests/README.md for details."
           (cl-delete-if-not
            #'file-directory-p
            (ptemplate--list-dir-dirs (ptemplate-test--rsc "expansion-tests"))))
-         (failed-templates (cl-delete-if
-                            #'ptemplate-test--expansion test-templates))
+         (failed-templates (ptemplate-test--with-fatal-dup-warning
+                            (cl-delete-if
+                             #'ptemplate-test--expansion test-templates)))
          (failed-expansions (mapcar #'file-name-nondirectory failed-templates)))
     (should (eq failed-expansions nil))))
 

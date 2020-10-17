@@ -136,7 +136,7 @@ This mode is only for keybindings."
             map))
 
 (defun ptemplate--setup-snippet-env (snippet-env)
-  "Set all \(SYMBOL . VALUE\) pairs in SNIPPET-ENV.
+  "Set all (SYMBOL . VALUE) pairs in SNIPPET-ENV.
 Variables are set buffer-locally."
   (let ((symbols (mapcar #'car snippet-env))
         (values (mapcar #'cdr snippet-env)))
@@ -145,8 +145,6 @@ Variables are set buffer-locally."
 
 (defun ptemplate--snippet-chain->continue ()
   "Make the next snippet/buffer in the snippet chain current."
-  ;; the actual payload (which is always in the `cdr'). (See
-  ;; `ptemplate--snippet-chain' for details).
   (let* ((context ptemplate--snippet-chain-context)
          (realchain (ptemplate--snippet-chain-snippets context))
          (next (car realchain)))
@@ -232,7 +230,7 @@ created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
   "Replace slashes in PATH with the platform's directory separator.
 PATH is a file path, as a string, assumed to use slashes as
 directory separators. On platform's where that character is
-different \(MS DOS, Windows\), replace such slashes with the
+different (MS DOS, Windows), replace such slashes with the
 platform's equivalent."
   (declare (side-effect-free t))
   (if (memq system-type '(msdos windows-nt))
@@ -241,8 +239,8 @@ platform's equivalent."
 
 (defun ptemplate--dir-find-relative (path)
   "List all files in PATH recursively.
-The list is a string of paths beginning with ./ \(or the
-platform's equivalent\) of all files and directories within it.
+The list is a string of paths beginning with ./ (or the
+platform's equivalent) of all files and directories within it.
 Unlike `directory-files-recursively', directories end in the
 platform's directory separator. \".\" and \"..\" are not
 included."
@@ -268,9 +266,9 @@ PATH specifies the path to examine."
 
 (defun ptemplate--file-map-absolute (src file-map)
   "Make FILE-MAP refer to SRC.
-Each mapping \(FSRC . TARGET\) is transformed into \((SRC . FSRC)
-. TARGET\), unless it already is of that form \(needed for nested
-inheritance\).
+Each mapping (FSRC . TARGET) is transformed into ((SRC . FSRC) .
+TARGET), unless it already is of that form (needed for nested
+inheritance).
 
 Return the result.
 
@@ -282,15 +280,15 @@ See `ptemplate--template-files' for a description of FILE-MAP."
 (defun ptemplate--list-template-dir-files-abs (path)
   "Like `ptemplate--list-template-dir-files'.
 The difference is that this version yields an absolute mapping
-instead \(see `ptemplate--file-map-absolute'\).
+instead (see `ptemplate--file-map-absolute').
 
 PATH specifies that path to the template."
   (ptemplate--file-map-absolute path (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--list-template-files (path)
   "Find all files in ptemplate PATH.
-Associates each file with its target \(alist (SRC . TARGET)\),
-removing the extension of special files \(e.g. .nocopy, .yas\).
+Associates each file with its target (alist (SRC . TARGET)\),
+removing the extension of special files (e.g. .nocopy, .yas\).
 Directories are included. .ptemplate.el and .ptemplate.elc are
 removed."
   (cl-delete-if
@@ -333,9 +331,9 @@ instance of this that is used by the .ptemplate.el API is in
   (file-map
    nil :documentation
    "Alist mapping template source files to their targets.
-Alist \(SRC . TARGET\), where SRC and TARGET are strings (see
+Alist (SRC . TARGET\), where SRC and TARGET are strings (see
 `ptemplate-map' for details). Additionally, SRC may be a cons of
-the form \(PREFIX . SRC\), in which case the source path becomes
+the form (PREFIX . SRC\), in which case the source path becomes
 PREFIX + SRC. TARGET may be nil, in which case nothing shall be
 copied.
 
@@ -401,12 +399,12 @@ trailing slash."
       (load-file dotptemplate))
     ptemplate--cur-copy-context))
 
-(defun ptemplate--prune-duplicate-files (files dup-cb)
+(defun ptemplate--remove-duplicate-files (files dup-cb)
   "Find and remove duplicates in FILES.
-FILES shall be a list of template file mappings \(see
+FILES shall be a list of template file mappings (see
 `ptemplate--template-files'\). If a duplicate is encountered,
 call DUP-CB using `funcall' and pass to it `car' of the mapping
-that came earlier and the \(SRC . TARGET\) cons that was
+that came earlier and the (SRC . TARGET\) cons that was
 encountered later.
 
 Return a new list of mappings with all duplicates removed
@@ -426,6 +424,16 @@ lists, but doesn't use constant memory."
            ;; remember it as encountered and collect it, since it was first
            else do (puthash target file known-targets) and collect file))
 
+(defun ptemplate--warn-dup-mapping (earlier current)
+  "Warn that a file was already mapped earlier.
+EARLIER should be the mapping found earlier, while CURRENT is the
+one that caused the warning.
+
+For use with `ptemplate--remove-duplicate-files'."
+  (lwarn '(ptemplate ptemplate-expand-template) :warning
+         "duplicate mappings encountered: \"%s\" was before \"%s\"."
+         earlier current))
+
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
 SOURCE specifies the template's source directory and TARGET the
@@ -443,13 +451,8 @@ manually copies files around in its .ptemplate.el :init block.
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
            with dup-file-map = (ptemplate--copy-context-file-map context)
-           with file-map =
-           (ptemplate--prune-duplicate-files
-            dup-file-map
-            (lambda (prev cur)
-              (lwarn '(ptemplate ptemplate-expand-template) :error
-                     "duplicate mappings encountered: \"%s\" before \"%s\""
-                     prev cur)))
+           with file-map = (ptemplate--remove-duplicate-files
+                            dup-file-map #'ptemplate--warn-dup-mapping)
            for (srcpair . targetf) in file-map
            ;; NOTE: If SRCPAIR is nil, SRC becomes nil (no error), because nil
            ;; is `consp' and `cdr' nil is nil.
@@ -574,7 +577,7 @@ STRING appended to it. That TYPE is propertized with this face."
 
 (defun ptemplate--list-templates-completing-read (templates)
   "`ptemplate--list-templates-helm', but for `completing-read'.
-Returns an alist mapping \(propertized\) strings, of the form
+Returns an alist mapping (propertized) strings, of the form
 \"<name> <type>\", to template paths. TEMPLATES is a list of
 templates, as returned by `ptemplate-list-templates'."
   (cl-loop for (type . templates) in templates nconc
@@ -699,7 +702,7 @@ be used to remove files with certain filenames from directory
 listings.
 
 Note that . or .. path components are not handled at all, meaning
-that \"\(string-match-p (ptemplate--make-basename-regex
+that \"(string-match-p (ptemplate--make-basename-regex
 \"tmp/foo\") \"tmp/foo/../foo\"\)\" will yield nil."
   (declare (side-effect-free t))
   (concat (ptemplate--unix-to-native-path "\\(?:/\\|\\`\\)")
@@ -750,9 +753,9 @@ REGEXES is a list of strings as described there."
 (defun ptemplate--map-relsrc (file-map)
   "Get the relative source from FILE-MAP.
 FILE-MAP shall be a file mapping, as can be found in
-`ptemplate--template-files' \((SRC . TARGET)\). If SRC is a cons
+`ptemplate--template-files' ((SRC . TARGET)\). If SRC is a cons
 that also stores the path to the file, return only the relative
-part: \(((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise yield
+part: (((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise yield
 SRC."
   (let ((src (car file-map)))
     (or (cdr-safe src) src)))
@@ -766,22 +769,44 @@ This function is only supposed to be called from `ptemplate!'."
            (string-match-p regex (ptemplate--map-relsrc src-targetf)))
          (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
 
-(defun ptemplate--override-files (base-files override)
-  "Override all mappings in BASE-FILES with those in OVERRIDE.
-Both of them shall be mappings like `ptemplate--template-files'.
-BASE-FILES and OVERRIDE may be altered destructively.
+(defun ptemplate--puthash-filemap (file-map table)
+  "Insert FILE-MAP's targets into the hash table TABLE.
+FILE-MAP shall be a `ptemplate--copy-context-file-map' and TABLE
+a hash-table with :test `equal'.
 
-Store the result in `ptemplate--template-files'."
-  (let ((mapped-targets (make-hash-table :test #'equal)))
-    ;; set up hash table: all targets from OVERRIDE are to be remembered, and
-    ;; not to be taken from BASE-FILES.
-    (dolist (target override)
-      (puthash (cdr target) t mapped-targets))
-    (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
-          ;; OVERRIDE + all files not mapped to in OVERRIDE from BASE-FILES
-          (nconc override (cl-delete-if
-                           (lambda (m) (gethash (cdr m) mapped-targets))
-                           base-files)))))
+Insert each TARGET of FILE-MAP into TABLE as the KEY, with the
+VALUE being a `cons' ('ptemplate-hash-el . SOURCE). The cons is
+necessary, as nil is a valid source."
+  (dolist (mapping file-map)
+    (puthash (cdr mapping) (cons 'ptemplate-hash-el (car mapping)) table)))
+
+(defun ptemplate--override-filemap (table file-map)
+  "Remove all entries from FILE-MAP already in TABLE non-destructively.
+Return the result. See `ptemplate--puthash-filemap' for details."
+  (cl-remove-if (lambda (x) (gethash (cdr x) table)) file-map))
+
+(defun ptemplate--merge-filemaps (file-maps)
+  "Merge FILE-MAPS non-destructively into a single file-map.
+Each entry in FILE-MAPS shall be a
+`ptemplate--copy-context-file-map'.
+
+Remove each entry whose TARGET was mapped in an earlier FILE-MAP,
+meaning that earlier FILE-MAPs take precedence. Do not remove
+duplicates in any FILE-MAP."
+  (cl-loop with visited-targets = (make-hash-table :test #'equal)
+           for file-map in file-maps
+           ;; we must use `append' here, as otherwise a wrong FILE-MAP will be
+           ;; inserted into VISITED-TARGETS
+           append (ptemplate--override-filemap visited-targets file-map)
+           do (ptemplate--puthash-filemap file-map visited-targets)))
+
+(defun ptemplate--override-files (file-maps)
+  "Override all mappings in FILE-MAPS and apply the result.
+Store the result in `ptemplate--template-files'.
+
+See `ptemplate--merge-filemaps' for details."
+  (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
+        (ptemplate--merge-filemaps file-maps)))
 
 (defun ptemplate--normalize-user-path-dir (path)
   "`ptemplate--normalize-user-path', but yield a directory.
@@ -843,7 +868,7 @@ files, in the :finalize block of `ptemplate!'."
   "REGEXES specify template files to ignore.
 See `ptemplate--make-basename-regex' for details. As a special
 case, if a REGEX starts with /, it is interpreted as a template
-path to ignore \(see `ptemplate--make-path-regex'\)."
+path to ignore (see `ptemplate--make-path-regex'\)."
   (ptemplate--prune-template-files
    (ptemplate--make-ignore-regex regexes)))
 
@@ -853,27 +878,34 @@ The files are added as if they were part of the current template
 being expanded, except that .ptemplate.el and .ptemplate.elc are
 valid filenames and are not interpreted.
 
-The files defined in the template take precedence. To get the
-other behaviour, use `ptemplate-include-override' instead."
+Mappings from the current template have the highest precedence,
+followed by the mappings from DIRS, where mappings from earlier
+DIRS win.
+
+To get the opposite behaviour, use `ptemplate-include-override'."
   (ptemplate--override-files
-   (mapcan #'ptemplate--list-template-dir-files-abs dirs)
-   (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
+   (cons (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
+         (mapcar #'ptemplate--list-template-dir-files-abs dirs))))
 
 (defun ptemplate-include-override (&rest dirs)
-  "Like `ptemplate-include', but files in DIRS override."
+  "The opposite of `ptemplate-include' in terms of behaviour.
+Later DIRS take precedence. See `ptemplate-include' for details."
   (ptemplate--override-files
-   (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
-   (mapcan #'ptemplate--list-template-dir-files-abs dirs)))
+   (nconc
+    ;; mappings from later DIRs should win.
+    (nreverse (mapcar #'ptemplate--list-template-dir-files-abs dirs))
+    ;; the current template's mappings
+    (list (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
 
 (defun ptemplate--inherit-templates (srcs)
   "Inherit the hooks of all templates in SRCS.
 This functions evaluates all templates in the template path list
-SRCS and prepends their hooks \(as defined by
+SRCS and prepends their hooks (as defined by
 `ptemplate--copy-context<-merge-hooks'\) to the current global
 ones.
 
 Return a list of path mappings corresponding to SRCS, each of
-which refer to their corresponding sources \(see
+which refer to their corresponding sources (see
 `ptemplate--file-map-absolute'\).
 
 See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
@@ -881,6 +913,7 @@ See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
          (merged-context
           (ptemplate--copy-context<-merge-hooks
            (append inherit-contexts (list ptemplate--cur-copy-context)))))
+    ;; don't truncate the file-map
     (setf (ptemplate--copy-context-file-map merged-context)
           (ptemplate--copy-context-file-map ptemplate--cur-copy-context))
     (setq ptemplate--cur-copy-context merged-context)
@@ -888,7 +921,7 @@ See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
                (mapcar #'ptemplate--copy-context-file-map inherit-contexts))))
 
 (defun ptemplate-inherit (&rest srcs)
-  "Inherit all templates in SRCS.
+  "Like `ptemplate-include', but also evaluate the .ptemplate.el file.
 The hooks of all templates in SRCS are run before the current
 template's ones and the files from SRCS are added for expansion.
 File maps defined in the current template take precedence, so can
@@ -897,21 +930,19 @@ that come earlier in SRCS take precedence over those from later
 templates. To ignore files from SRCS, map them from nil using
 :map or `ptemplate-map' before calling this function."
   ;; NOTE: templates that come later in DIRS are overridden.
-  ;; FIXME no intermediate overriding
-  (let ((to-inherit (apply #'nconc (ptemplate--inherit-templates srcs))))
-    (ptemplate--override-files
-     to-inherit
-     (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
+  (ptemplate--override-files
+   (cons (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
+         (ptemplate--inherit-templates srcs))))
 
 (defun ptemplate-inherit-overriding (&rest srcs)
-  "Like `ptemplate-inherit', but files in SRCS take precedence.
-Files from templates that come later in SRCS take precedence."
-  (let ((to-inherit
-         (apply #'nconc (nreverse (ptemplate--inherit-templates srcs)))))
-    ;; FIXME
-    (ptemplate--override-files
-     (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
-     to-inherit)))
+  "The opposite of `ptemplate-inherit' in terms of behaviour.
+To `ptemplate-inherit' what `ptemplate-include-override' is to
+`ptemplate-include'. Files from templates that come later in SRCS
+take precedence."
+  (ptemplate--override-files
+   (nconc
+    (nreverse (ptemplate--inherit-templates srcs))
+    (list (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
 
 (defun ptemplate-source (dir)
   "Return DIR as if relative to `ptemplate-source-directory'."
@@ -989,9 +1020,8 @@ Only for use in `ptemplate-snippet-setup'."
 
 (defun ptemplate-nokill-snippets (snippets)
   "Don't kill SNIPPETS after expansion.
-SNIPPETS is a list of target-relative file snippets \(.yas\)
-whose buffers should not be killed in
-`ptemplate-snippet-chain-next'."
+SNIPPETS is a list of target-relative file snippets (.yas) whose
+buffers should not be killed in `ptemplate-snippet-chain-next'."
   (ptemplate-snippet-setup snippets #'ptemplate-set-snippet-kill-p))
 
 (defun ptemplate-nokill-snippets! (&rest snippets)
@@ -1046,7 +1076,7 @@ are:
         root. Practically, this means not adding its files and
         including it. Evaluated before :init.
 
-:remap ARG shall be of the form \(SRC TARGET\); calls
+:remap ARG shall be of the form (SRC TARGET\; calls
        `ptemplate-remap' on the results of evaluating SRC and
        TARGET. Run after :init.
 
@@ -1056,14 +1086,14 @@ are:
            insignificant.
 
 :map Syntax sugar for `ptemplate-map'. ARG must be of the form
-     \(SRC TARGET\), both of which are ordinary LISP expressions.
+     (SRC TARGET), both of which are ordinary LISP expressions.
      Run after :remap and :remap-rec.
 
 :inherit Syntax sugar for `ptemplate-inherit'. FORMs may be
-         arbitrary Lisp expressions \(not just strings\).
-         Executed after :map.
+         arbitrary Lisp expressions (not just strings). Executed
+         after :map.
 
-:open-bg Expressions yielding files \(target-relative\) to open
+:open-bg Expressions yielding files (target-relative) to open
          with `find-file-noselect' at the very end of expansion.
 
 :open Like :open-bg, but open the last file using `find-file'.
