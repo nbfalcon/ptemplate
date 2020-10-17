@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.1.0
+;; Version: 1.2.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
