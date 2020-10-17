@@ -252,7 +252,7 @@ included."
 
 (defun ptemplate--auto-map-file (file)
   "Map FILE to its target, removing special extensions.
-See `ptemplate--template-files'."
+See `ptemplate--copy-context-file-map' for details."
   (if (member (file-name-extension file) '("keep" "yas" "autoyas"))
       (file-name-sans-extension file)
     file))
@@ -272,7 +272,7 @@ inheritance).
 
 Return the result.
 
-See `ptemplate--template-files' for a description of FILE-MAP."
+See `ptemplate--copy-context-file-map' for a description of FILE-MAP."
   (cl-loop with src = (file-name-as-directory src)
            for (fsrc . target) in file-map
            collect (cons (if (consp fsrc) fsrc (cons src fsrc)) target)))
@@ -402,10 +402,10 @@ trailing slash."
 (defun ptemplate--remove-duplicate-files (files dup-cb)
   "Find and remove duplicates in FILES.
 FILES shall be a list of template file mappings (see
-`ptemplate--template-files'\). If a duplicate is encountered,
-call DUP-CB using `funcall' and pass to it `car' of the mapping
-that came earlier and the (SRC . TARGET\) cons that was
-encountered later.
+`ptemplate--copy-context-file-map'\). If a duplicate is
+encountered, call DUP-CB using `funcall' and pass to it `car' of
+the mapping that came earlier and the (SRC . TARGET\) cons that
+was encountered later.
 
 Return a new list of mappings with all duplicates removed
 \(non-destructively\).
@@ -753,10 +753,10 @@ REGEXES is a list of strings as described there."
 (defun ptemplate--map-relsrc (file-map)
   "Get the relative source from FILE-MAP.
 FILE-MAP shall be a file mapping, as can be found in
-`ptemplate--template-files' ((SRC . TARGET)\). If SRC is a cons
-that also stores the path to the file, return only the relative
-part: (((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise yield
-SRC."
+`ptemplate--copy-context-file-map' ((SRC . TARGET)\). If SRC is a
+cons that also stores the path to the file, return only the
+relative part: (((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise
+yield SRC."
   (let ((src (car file-map)))
     (or (cdr-safe src) src)))
 
@@ -802,7 +802,7 @@ duplicates in any FILE-MAP."
 
 (defun ptemplate--override-files (file-maps)
   "Override all mappings in FILE-MAPS and apply the result.
-Store the result in `ptemplate--template-files'.
+Store the result in `ptemplate--copy-context-file-map'.
 
 See `ptemplate--merge-filemaps' for details."
   (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
@@ -959,12 +959,16 @@ the global one afterwards.
 
 Return the result of the last BODY form."
   (declare (indent 0))
-  `(let ((--ptemplate-sandbox-result--
-          (let (ptemplate--template-files)
-            (cons ,(macroexp-progn body) ptemplate--template-files))))
-     (setq ptemplate--template-files
-           (nconc ptemplate--template-files (cdr --ptemplate-sandbox-result--)))
-     (car --ptemplate-sandbox-result--)))
+  `(let ((--ptemplate-old-filemap--
+          (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
+     (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context) nil)
+     (prog1
+         (progn ,@body)
+       (setf
+        (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
+        (nconc --ptemplate-old-filemap--
+               (ptemplate--copy-context-file-map
+                ptemplate--cur-copy-context))))))
 
 ;;; snippet configuration
 (defun ptemplate-target-relative ()
