@@ -43,6 +43,21 @@
 
 ;;; snippet-chain subsystem
 
+(cl-defstruct (ptemplate--snippet-chain-mapping
+               (:constructor ptemplate--snippet-chain-mapping<-new)
+               (:copier ptemplate--snippet-chain<-copy))
+  "Maps a SRC to snippet expansion TARGET."
+  (src
+   nil :documentation
+   "Path to the snippet being expanded.")
+  (target
+   nil :documentation
+   "Where SRC is expanded to.")
+  (setup-hook
+   nil :documentation
+   "Run before inserting each snippet.
+Each function therein is called without arguments."))
+
 (cl-defstruct (ptemplate--snippet-chain
                (:constructor ptemplate--snippet-chain<-new))
   "Holds all state needed for executing a snippet chain.
@@ -50,7 +65,7 @@ An instance of this, `ptemplate--snippet-chain-context', is
 passed trough each buffer so that they can all share some state."
   (snippets
    nil :documentation
-   "Cons pointer to list of (SNIPPET . TARGET) or BUFFER.
+   "List of `ptemplate--snippet-chain-mapping'.
 Template directories can have any number of yasnippet files.
 These need to be filled in by the user. To do this, there is a
 snippet chain: a list of snippets and their target files or
@@ -87,18 +102,6 @@ then it wouldn't be the last element anymore.")
    "Hook run after each snippet-chain buffer is created.
 Can be used to configure `ptemplate--snippet-chain-nokill'. Each
 function therein is called with no arguments."))
-
-(defun ptemplate--copy-context<-merge-hooks (contexts)
-  "Merge all hook-fields of CONTEXTS.
-CONTEXTS is a list of `ptemplate--copy-context's. The fields that
-are not FILE-MAP of each CONTEXT are concatenated using `nconc',
-and the result, also a `ptemplate--copy-context', returned."
-  (ptemplate--copy-context<-new
-   :snippet-env (mapcan #'ptemplate--copy-context-snippet-env contexts)
-   :snippet-conf-hook
-   (mapcan #'ptemplate--copy-context-snippet-conf-hook contexts)
-   :before-snippets (mapcan #'ptemplate--copy-context-before-snippets contexts)
-   :finalize-hook (mapcan #'ptemplate--copy-context-finalize-hook contexts)))
 
 (defvar-local ptemplate--snippet-chain-nokill nil
   "If set in a snippet-chain buffer, don't kill it.
@@ -156,18 +159,19 @@ Variables are set buffer-locally."
      ((null next)
       (mapc #'funcall (ptemplate--snippet-chain-finalize-hook context)))
      ((bufferp next) (switch-to-buffer next))
-     ((consp next)
-      (let ((target (cdr next))
-            (source-file (car next)))
+     ((ptemplate--snippet-chain-mapping-p next)
+      (let ((target (ptemplate--snippet-chain-mapping-target next))
+            (source-file (ptemplate--snippet-chain-mapping-src next))
+            (setup-hook (ptemplate--snippet-chain-mapping-setup-hook next)))
         (require 'yasnippet)
         (with-current-buffer (find-file-noselect target)
           (make-local-variable 'ptemplate--snippet-chain-context)
 
-          (ptemplate--setup-snippet-env
-           (ptemplate--snippet-chain-env context))
+          (ptemplate--setup-snippet-env (ptemplate--snippet-chain-env context))
           ;; let the user configure the buffer, with the snippet-env already
           ;; bound.
           (mapc #'funcall (ptemplate--snippet-chain-newbuf-hook context))
+          (mapc #'funcall setup-hook)
 
           ;; "yasnippet needs a properly set-up `yas-minor-mode'"
           (yas-minor-mode 1)
@@ -187,7 +191,8 @@ empty, do nothing."
     (if ptemplate--snippet-chain-nokill
         (ptemplate-snippet-chain-mode -1)
       (kill-buffer))
-    ;; the `let' above overrides the buffer-local binding
+    ;; the `let' needs to be here, as otherwise it would override the
+    ;; buffer-local binding
     (let ((ptemplate--snippet-chain-context context))
       (ptemplate--snippet-chain->continue))))
 
@@ -294,15 +299,18 @@ special files (e.g. .nocopy, .yas). Directories are included.
              '("./.ptemplate.el" "./.ptemplate.elc")))
    (ptemplate--list-template-dir-files path)))
 
-(defun ptemplate--autoyas-expand (src target &optional expand-env)
+(defun ptemplate--autoyas-expand
+    (src target &optional expand-env snippet-setup-hook)
   "Expand yasnippet in file SRC to file TARGET.
 Expansion is done \"headless\", that is without showing buffers.
 EXPAND-ENV is an environment alist like in
-`ptemplate--snippet-chain-env'."
+`ptemplate--snippet-chain-env'. Execute each function in
+SNIPPET-SETUP-HOOK before expanding the snippet."
   (with-temp-file target
     (require 'yasnippet)
 
     (ptemplate--setup-snippet-env expand-env)
+    (mapc #'funcall snippet-setup-hook)
 
     (yas-minor-mode 1)
     (yas-expand-snippet (ptemplate--read-file src))))
@@ -314,6 +322,27 @@ directories \".\" and \"..\" are ignored."
   (cl-delete-if (lambda (f) (or (string= (file-name-base f) ".")
                            (string= (file-name-base f) "..")))
                 (directory-files dir t)))
+
+(defmacro ptemplate--prependlf (newels place)
+  "Prepend list NEWELS to PLACE.
+There is no single-element version of this, because `cl-push'
+does that already."
+  (declare (debug (form gv-place)))
+  (macroexp-let2 macroexp-copyable-p x newels
+    (gv-letplace (getter setter) place
+      (funcall setter `(nconc ,x ,getter)))))
+
+(defmacro ptemplate--appendlf (newels place)
+  "Add list NEWELS to the end of list PLACE."
+  (declare (debug (form gv-place)))
+  (macroexp-let2 macroexp-copyable-p x newels
+    (gv-letplace (getter setter) place
+      (funcall setter `(nconc ,getter ,x)))))
+
+(defmacro ptemplate--appendf (newelt place)
+  "Add NEWELT to the end of list PLACE."
+  (declare (debug (form gv-place)))
+  `(ptemplate--appendlf (list ,newelt) ,place))
 
 ;;; copy context
 (cl-defstruct (ptemplate--file-mapping
@@ -331,7 +360,12 @@ The underlying data-structure of
   (target
    nil :documentation
    "Where the SRC is mapped to.
-Relative to the expansion target."))
+Relative to the expansion target.")
+  (snippet-setup-hook
+   nil :documentation
+   "List of functions run to set up this snippet.
+Only makes sense in snippet-chain files. See
+`ptemplate-snippet-setup'."))
 
 (defun ptemplate--file-map->absoluteify (path file-map)
   "Make each relative mapping in FILE-MAP refer to PATH.
@@ -377,6 +411,18 @@ At this point, no more files need to be copied and no more
 snippets need be expanded.
 
 See also `ptemplate--before-expand-hooks'."))
+
+(defun ptemplate--copy-context<-merge-hooks (contexts)
+  "Merge all hook-fields of CONTEXTS.
+CONTEXTS is a list of `ptemplate--copy-context's. The fields that
+are not FILE-MAP of each CONTEXT are concatenated using `nconc',
+and the result, also a `ptemplate--copy-context', returned."
+  (ptemplate--copy-context<-new
+   :snippet-env (mapcan #'ptemplate--copy-context-snippet-env contexts)
+   :snippet-conf-hook
+   (mapcan #'ptemplate--copy-context-snippet-conf-hook contexts)
+   :before-snippets (mapcan #'ptemplate--copy-context-before-snippets contexts)
+   :finalize-hook (mapcan #'ptemplate--copy-context-finalize-hook contexts)))
 
 (defvar ptemplate--cur-copy-context nil
   "Current instance of the `ptemplate--copy-context'.
@@ -482,6 +528,9 @@ manually copies files around in its .ptemplate.el :init block.
            for src-dir? = (and src (directory-name-p realsrc))
            for realtarget = (concat target targetf)
 
+           for snippet-setup-hook =
+           (ptemplate--file-mapping-snippet-setup-hook mapping)
+
 ;;; `ptemplate--copy-context->execute': support nil maps
            if src do
            (make-directory
@@ -495,17 +544,20 @@ manually copies files around in its .ptemplate.el :init block.
 
            and unless src-dir?
            if (string-suffix-p ".yas" src)
-           collect (cons realsrc realtarget) into yasnippets
+           collect (ptemplate--snippet-chain-mapping<-new
+                    :src realsrc :target realtarget
+                    :setup-hook snippet-setup-hook) into yasnippets
            else if (string-suffix-p ".autoyas" src)
-           do (ptemplate--autoyas-expand realsrc realtarget snippet-env)
+           do (ptemplate--autoyas-expand realsrc realtarget snippet-env
+                                         snippet-setup-hook)
            else do (copy-file realsrc realtarget)
 
            finally do
            (run-hooks 'ptemplate--before-snippet-hook)
            (ptemplate--snippet-chain->start
             yasnippets snippet-env
-            (ptemplate--copy-context-snippet-conf-hook context)
-            (ptemplate--copy-context-finalize-hook context))))
+            (ptemplate--copy-context-finalize-hook context)
+            (ptemplate--copy-context-snippet-conf-hook context))))
 
 ;;; Public API
 (defun ptemplate--list-dir-dirs (dir)
@@ -685,9 +737,8 @@ If called interactively, SOURCE is prompted using
                      (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
     ;; ensure `ptemplate-post-expand-hook' is run
-    (setf (ptemplate--copy-context-finalize-hook context)
-          (nconc (ptemplate--copy-context-finalize-hook context)
-                 ptemplate-post-expand-hook))
+    (ptemplate--appendlf ptemplate-post-expand-hook
+                         (ptemplate--copy-context-finalize-hook context))
     (ptemplate--copy-context->execute context source target)))
 
 ;;;###autoload
@@ -975,11 +1026,9 @@ Return the result of the last BODY form."
      (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context) nil)
      (prog1
          (progn ,@body)
-       (setf
-        (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
-        (nconc --ptemplate-old-filemap--
-               (ptemplate--copy-context-file-map
-                ptemplate--cur-copy-context))))))
+       (ptemplate--prependlf
+        --ptemplate--old-filemap--
+        (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
 
 ;;; snippet configuration
 (defun ptemplate-target-relative ()
@@ -988,18 +1037,28 @@ Only for use in `ptemplate-snippet-setup'"
   (concat (ptemplate--unix-to-native-path "./")
           (file-relative-name buffer-file-name ptemplate-target-directory)))
 
+(defun ptemplate--snippet-name-p (f)
+  "Check if F names an interactive or non-interactive snippet."
+  (member (file-name-extension f) '("autoyas" "yas")))
+
 (defun ptemplate-snippet-setup (snippets callback)
   "Run CALLBACK to configure SNIPPETS.
 SNIPPETS is a list of target-relative file snippet targets
-\(.yas\). If a yasnippet expands to them, CALLBACK is called and
-can configure them further. All variables defined in
+\(.yas, .autoyas\). If a yasnippet expands to them, CALLBACK is
+called and can configure them further. All variables defined in
 :snippet-env, :snippet-let, ... are available to it."
-  (let ((snippets (mapcar #'ptemplate--normalize-user-path snippets)))
-    (cl-pushnew
-     (lambda () "Run to configure snippet-chain buffers."
-       (when (member (ptemplate-target-relative) snippets)
-         (funcall callback)))
-     (ptemplate--copy-context-snippet-conf-hook ptemplate--cur-copy-context))))
+  (cl-loop with snippets = (mapcar #'ptemplate--normalize-user-path snippets)
+           for mapping in (ptemplate--copy-context-file-map
+                           ptemplate--cur-copy-context)
+           for src = (ptemplate--file-mapping-src mapping)
+           for target = (ptemplate--file-mapping-target mapping)
+           if (member target snippets)
+           if (ptemplate--snippet-name-p src) do
+           (ptemplate--appendf
+            callback (ptemplate--file-mapping-snippet-setup-hook mapping))
+           else do
+           (lwarn '(ptemplate-snippet-setup) :error
+                  "trying to configure non-snippet mapping %S" mapping)))
 
 (defmacro ptemplate-snippet-setup! (snippets &rest body)
   "Like `ptemplate--snippet-setup', but as a macro.
@@ -1007,8 +1066,7 @@ SNIPPETS shall be an expression yielding a list snippet-chain
   (declare (indent 1))
 expansion targets. BODY will be executed for each of them."
   `(ptemplate-snippet-setup
-    ,snippets
-    (lambda () "Run to configure snippet-chain buffers." ,@body)))
+    ,snippets (lambda () "Run to configure snippet-chain buffers." ,@body)))
 
 (defun ptemplate-add-snippet-next-hook (&rest functions)
   "Add `ptemplate-snippet-chain-next' functions.
@@ -1217,20 +1275,18 @@ internal details, which are subject to change at any time."
                        ,@(when open-fg
                            (list (car open-fg)))))))
        (when snippet-env
-         `((setf
-            (ptemplate--copy-context-snippet-env ptemplate--cur-copy-context)
-            (nconc
-             (ptemplate--copy-context-snippet-env ptemplate--cur-copy-context)
-             (list ,@(cl-loop
-                      for var in snippet-env collect
-                      (if (listp var)
-                          (list #'cons (macroexp-quote (car var)) (cadr var))
-                        `(cons ',var ,var))))))))
+         `((ptemplate--appendlf
+            (list ,@(cl-loop
+                     for var in snippet-env collect
+                     (if (listp var)
+                         (list #'cons (macroexp-quote (car var)) (cadr var))
+                       `(cons ',var ,var))))
+            (ptemplate--copy-context-snippet-env ptemplate--cur-copy-context))))
        (nreverse snippet-setup-forms)
        (when nokill-buffers
          ;; `nreverse' is technically unnecessary here, but it looks better in
-         ;; the template output.
-         `((ptemplate-nokill-snippets! ,(nreverse nokill-buffers)))))))))
+         ;; the template expansion.
+         `((ptemplate-nokill-snippets! ,@(nreverse nokill-buffers)))))))))
 
 (provide 'ptemplate)
 ;;; ptemplate.el ends here
