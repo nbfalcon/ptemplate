@@ -1031,12 +1031,6 @@ Return the result of the last BODY form."
         (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
 
 ;;; snippet configuration
-(defun ptemplate-target-relative ()
-  "Get the expansion-target relative path of the buffer.
-Only for use in `ptemplate-snippet-setup'"
-  (concat (ptemplate--unix-to-native-path "./")
-          (file-relative-name buffer-file-name ptemplate-target-directory)))
-
 (defun ptemplate--snippet-name-p (f)
   "Check if F names an interactive or non-interactive snippet."
   (member (file-name-extension f) '("autoyas" "yas")))
