@@ -586,10 +586,10 @@ templates, as returned by `ptemplate-list-templates'."
              (cl-loop for (name . path) in templates collect
                       (cons (concat name " " category) path)))))
 
-(defvar ptemplate--completing-read-history nil
+(defvar ptemplate-completing-read-history nil
   "History variable for `completing-read'-based template prompts.
-If :completing-read is set as `ptemplate-template-prompt-function',
-pass this variable as history argument to `completing-read'.")
+Used by `ptemplate-prompt-template-completing-read' to remember
+the history.")
 
 (defun ptemplate-prompt-template-completing-read (templates)
   "Prompt for a template using `completing-read'.
@@ -603,7 +603,7 @@ This function's API is not stable, and it for use only for use in
   (let ((ptemplates (ptemplate--list-templates-completing-read templates)))
     (or
      (alist-get (completing-read "Select template: " ptemplates
-                                 nil t nil 'ptemplate--completing-read-history)
+                                 nil t nil 'ptemplate-completing-read-history)
                 ptemplates nil nil #'string=)
      (user-error "Please select a template"))))
 
