@@ -251,50 +251,47 @@ included."
                        (file-name-as-directory file) file)))
 
 (defun ptemplate--auto-map-file (file)
-  "Map FILE to its target, removing special extensions.
-See `ptemplate--copy-context-file-map' for details."
+  "Associate FILE to a target file name.
+File specifies the template-relative path to a file in a
+template."
   (if (member (file-name-extension file) '("keep" "yas" "autoyas"))
       (file-name-sans-extension file)
     file))
 
+(defun ptemplate--file-mapping<-auto (file)
+  "Map FILE using `ptemplate--auto-map-file'.
+Return a `ptemplate--file-mapping'."
+  (ptemplate--file-mapping<-new
+   :src file :target (ptemplate--auto-map-file file)))
+
 (defun ptemplate--list-template-dir-files (path)
   "`ptemplate--list-template-files', but include .ptemplate.el.
 PATH specifies the path to examine."
-  (cl-loop for file in (ptemplate--dir-find-relative path)
-           unless (string-suffix-p ".nocopy" file)
-           collect (cons file (ptemplate--auto-map-file file))))
-
-(defun ptemplate--file-map-absolute (src file-map)
-  "Make FILE-MAP refer to SRC.
-Each mapping (FSRC . TARGET) is transformed into ((SRC . FSRC) .
-TARGET), unless it already is of that form (needed for nested
-inheritance).
-
-Return the result.
-
-See `ptemplate--copy-context-file-map' for a description of FILE-MAP."
-  (cl-loop with src = (file-name-as-directory src)
-           for (fsrc . target) in file-map
-           collect (cons (if (consp fsrc) fsrc (cons src fsrc)) target)))
+  (mapcar #'ptemplate--file-mapping<-auto
+          (cl-delete-if (apply-partially #'string-suffix-p ".nocopy")
+                        (ptemplate--dir-find-relative path))))
 
 (defun ptemplate--list-template-dir-files-abs (path)
   "Like `ptemplate--list-template-dir-files'.
 The difference is that this version yields an absolute mapping
-instead (see `ptemplate--file-map-absolute').
+instead (see `ptemplate--file-map->absoluteify').
 
 PATH specifies that path to the template."
-  (ptemplate--file-map-absolute path (ptemplate--list-template-dir-files path)))
+  (ptemplate--file-map->absoluteify
+   path (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--list-template-files (path)
   "Find all files in ptemplate PATH.
-Associates each file with its target (alist (SRC . TARGET)\),
-removing the extension of special files (e.g. .nocopy, .yas\).
-Directories are included. .ptemplate.el and .ptemplate.elc are
-removed."
+The result is a list file-map, as in `ptemplate--file-map'.
+
+Associates each file with its target, removing the extension of
+special files (e.g. .nocopy, .yas). Directories are included.
+.ptemplate.el and .ptemplate.elc are removed."
   (cl-delete-if
-   (lambda (f)
-     (string-match-p
-      (ptemplate--unix-to-native-path "\\`\\./\\.ptemplate\\.elc?") (car f)))
+   (lambda (mapping)
+     (member (ptemplate--file-mapping-src mapping)
+             ;; NOTE: these may be directories; don't ignore them in that case
+             '("./.ptemplate.el" "./.ptemplate.elc")))
    (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--autoyas-expand (src target &optional expand-env)
@@ -318,7 +315,33 @@ directories \".\" and \"..\" are ignored."
                            (string= (file-name-base f) "..")))
                 (directory-files dir t)))
 
-;;; `ptemplate--copy-context'
+;;; copy context
+(cl-defstruct (ptemplate--file-mapping
+               (:constructor ptemplate--file-mapping<-new)
+               (:copier ptemplate--file-mapping<-copy))
+  "Holds a file mapping, as can be found in file-maps.
+The underlying data-structure of
+`ptemplate--copy-context-file-map'."
+  (prefix
+   nil :documentation
+   "Prepended to SRC to yield the actual location.")
+  (src
+   nil :documentation
+   "See PREFIX.")
+  (target
+   nil :documentation
+   "Where the SRC is mapped to.
+Relative to the expansion target."))
+
+(defun ptemplate--file-map->absoluteify (path file-map)
+  "Make each relative mapping in FILE-MAP refer to PATH.
+A relative mapping is one whose PREFIX is nil. For each of them,
+set the PREFIX to PATH, modifying FILE-MAP. Return the result."
+  (dolist (mapping file-map)
+    (setf (ptemplate--file-mapping-prefix mapping)
+          (or (ptemplate--file-mapping-prefix mapping) path)))
+  file-map)
+
 (cl-defstruct (ptemplate--copy-context
                (:constructor ptemplate--copy-context<-new)
                (:copier ptemplate--copy-context<-copy))
@@ -330,14 +353,7 @@ instance of this that is used by the .ptemplate.el API is in
 `ptemplate--cur-copy-context'."
   (file-map
    nil :documentation
-   "Alist mapping template source files to their targets.
-Alist (SRC . TARGET\), where SRC and TARGET are strings (see
-`ptemplate-map' for details). Additionally, SRC may be a cons of
-the form (PREFIX . SRC\), in which case the source path becomes
-PREFIX + SRC. TARGET may be nil, in which case nothing shall be
-copied.
-
-This variable is always `let'-bound.")
+   "List of `ptemplate--file-mapping.'")
   (snippet-env
    nil :documentation
    "Environment used for snippet expansion.
@@ -415,7 +431,7 @@ lists, but doesn't use constant memory."
   ;; hashmap of all target files mapped to `t'
   (cl-loop with known-targets = (make-hash-table :test 'equal)
            for file in files
-           for target = (cdr file)
+           for target = (ptemplate--file-mapping-target file)
 
            for prev-source = (gethash target known-targets)
            if prev-source
@@ -430,9 +446,10 @@ EARLIER should be the mapping found earlier, while CURRENT is the
 one that caused the warning.
 
 For use with `ptemplate--remove-duplicate-files'."
-  (lwarn '(ptemplate ptemplate-expand-template) :warning
-         "duplicate mappings encountered: \"%s\" was before \"%s\"."
-         earlier current))
+  (lwarn
+   '(ptemplate ptemplate-expand-template) :warning
+   "duplicate mappings encountered: \"%s\" came before \"%s\""
+   earlier current))
 
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
@@ -451,18 +468,18 @@ manually copies files around in its .ptemplate.el :init block.
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
            with dup-file-map = (ptemplate--copy-context-file-map context)
-           with file-map = (ptemplate--remove-duplicate-files
+           with mappings = (ptemplate--remove-duplicate-files
                             dup-file-map #'ptemplate--warn-dup-mapping)
-           for (srcpair . targetf) in file-map
-           ;; NOTE: If SRCPAIR is nil, SRC becomes nil (no error), because nil
-           ;; is `consp' and `cdr' nil is nil.
-           for src = (if (consp srcpair) (cdr srcpair) srcpair)
-           for realsrc = (when src (concat (if (consp srcpair)
-                                               (car srcpair) source) src))
-           ;; NOTE: all directories from `ptemplate--list-template-files' end in
-           ;; a slash.
-           for dir? = (when src (directory-name-p realsrc))
+           for mapping in mappings
+           for src = (ptemplate--file-mapping-src mapping)
+           for targetf = (ptemplate--file-mapping-target mapping)
 
+           for realsrc =
+           (and src
+                (concat (or (ptemplate--file-mapping-prefix mapping) source)
+                        src))
+           ;; all directories from `ptemplate--list-template-files' end in '/'
+           for src-dir? = (and src (directory-name-p realsrc))
            for realtarget = (concat target targetf)
 
 ;;; `ptemplate--copy-context->execute': support nil maps
@@ -473,10 +490,10 @@ manually copies files around in its .ptemplate.el :init block.
             ;; their containing directories instead. This avoids prompts asking
             ;; the user if they really want to save a file even though its
             ;; containing directory was not made yet.
-            (if dir? realtarget (file-name-directory realtarget))
+            (if src-dir? realtarget (file-name-directory realtarget))
             t)
 
-           and unless dir?
+           and unless src-dir?
            if (string-suffix-p ".yas" src)
            collect (cons realsrc realtarget) into yasnippets
            else if (string-suffix-p ".autoyas" src)
@@ -487,8 +504,8 @@ manually copies files around in its .ptemplate.el :init block.
            (run-hooks 'ptemplate--before-snippet-hook)
            (ptemplate--snippet-chain->start
             yasnippets snippet-env
-            (ptemplate--copy-context-finalize-hook context)
-            (ptemplate--copy-context-snippet-conf-hook context))))
+            (ptemplate--copy-context-snippet-conf-hook context)
+            (ptemplate--copy-context-finalize-hook context))))
 
 ;;; Public API
 (defun ptemplate--list-dir-dirs (dir)
@@ -750,23 +767,13 @@ REGEXES is a list of strings as described there."
               (ptemplate--make-basename-regex regex)))
    "\\|"))
 
-(defun ptemplate--map-relsrc (file-map)
-  "Get the relative source from FILE-MAP.
-FILE-MAP shall be a file mapping, as can be found in
-`ptemplate--copy-context-file-map' ((SRC . TARGET)\). If SRC is a
-cons that also stores the path to the file, return only the
-relative part: (((TEMPLATE . RSRC) . TARGET\) -> RSRC, otherwise
-yield SRC."
-  (let ((src (car file-map)))
-    (or (cdr-safe src) src)))
-
 (defun ptemplate--prune-template-files (regex)
   "Remove all template whose source files match REGEX.
 This function is only supposed to be called from `ptemplate!'."
   (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
         (cl-delete-if
          (lambda (src-targetf)
-           (string-match-p regex (ptemplate--map-relsrc src-targetf)))
+           (string-match-p regex (ptemplate--file-mapping-src src-targetf)))
          (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
 
 (defun ptemplate--puthash-filemap (file-map table)
@@ -775,15 +782,15 @@ FILE-MAP shall be a `ptemplate--copy-context-file-map' and TABLE
 a hash-table with :test `equal'.
 
 Insert each TARGET of FILE-MAP into TABLE as the KEY, with the
-VALUE being a `cons' ('ptemplate-hash-el . SOURCE). The cons is
-necessary, as nil is a valid source."
+VALUE t."
   (dolist (mapping file-map)
-    (puthash (cdr mapping) (cons 'ptemplate-hash-el (car mapping)) table)))
+    (puthash (ptemplate--file-mapping-target mapping) t table)))
 
 (defun ptemplate--override-filemap (table file-map)
   "Remove all entries from FILE-MAP already in TABLE non-destructively.
 Return the result. See `ptemplate--puthash-filemap' for details."
-  (cl-remove-if (lambda (x) (gethash (cdr x) table)) file-map))
+  (cl-remove-if (lambda (x) (gethash (ptemplate--file-mapping-target x) table))
+                file-map))
 
 (defun ptemplate--merge-filemaps (file-maps)
   "Merge FILE-MAPS non-destructively into a single file-map.
@@ -823,9 +830,11 @@ is a path relative to the expansion target.
 SRC can also be nil, in which case nothing would be copied, but
 TARGET would shadow mappings from inherited or included
 templates."
-  (cl-pushnew (cons (when src (ptemplate--normalize-user-path src))
-                    (ptemplate--normalize-user-path target))
-              (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
+  (cl-pushnew
+   (ptemplate--file-mapping<-new
+    :src (and src (ptemplate--normalize-user-path src))
+    :target (ptemplate--normalize-user-path target))
+   (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
@@ -852,10 +861,12 @@ remap it to that same directory relative to TARGET."
   (let ((remap-regex
          (concat "\\`" (regexp-quote (ptemplate--normalize-user-path-dir src))))
         (target (ptemplate--normalize-user-path-dir target)))
-    (dolist (file (ptemplate--copy-context-file-map
-                   ptemplate--cur-copy-context))
-      (setcdr file (replace-regexp-in-string
-                    remap-regex target (cdr file) nil t)))))
+    (dolist (mapping (ptemplate--copy-context-file-map
+                      ptemplate--cur-copy-context))
+      (setf (ptemplate--file-mapping-target mapping)
+            (replace-regexp-in-string
+             remap-regex target (ptemplate--file-mapping-target mapping)
+             nil t)))))
 
 (defun ptemplate-copy-target (src target)
   "Copy SRC to TARGET, both relative to the expansion target.
@@ -906,7 +917,7 @@ ones.
 
 Return a list of path mappings corresponding to SRCS, each of
 which refer to their corresponding sources (see
-`ptemplate--file-map-absolute'\).
+`ptemplate--file-map->absoluteify'\).
 
 See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
   (let* ((inherit-contexts (mapcar #'ptemplate--eval-template srcs))
@@ -917,7 +928,7 @@ See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
     (setf (ptemplate--copy-context-file-map merged-context)
           (ptemplate--copy-context-file-map ptemplate--cur-copy-context))
     (setq ptemplate--cur-copy-context merged-context)
-    (cl-mapcar #'ptemplate--file-map-absolute srcs
+    (cl-mapcar #'ptemplate--file-map->absoluteify srcs
                (mapcar #'ptemplate--copy-context-file-map inherit-contexts))))
 
 (defun ptemplate-inherit (&rest srcs)
