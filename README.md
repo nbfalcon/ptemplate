@@ -139,8 +139,9 @@ Some other useful functions include:
   modify an inherited template)
   
 ptemplate also includes facilities to configure snippet-chain buffers further:
-- `ptemplate-snippet-setup`: configure some snippet-chain targets using LISP
-  forms, run before snippet insertion.
+- `ptemplate-snippet-setup`: configure some snippet-chain targets using lisp
+  functions, run before snippet insertion.
+- `ptemplate-snippet-setup!`: like the above, but as a macro
 - `ptemplate-set-snippet-kill-p`: in a snippet-chain buffer, can be used to mark
   it as not to be killed.
 - `ptemplate-nokill-snippets`: `ptemplate!`'s :nokill, but as a function.

@@ -386,7 +386,6 @@ Return a `ptemplate--file-mapping'."
    :src file :target (ptemplate--auto-map-file file)
    :type (ptemplate--mapping-auto-type file)))
 
-
 (cl-defstruct (ptemplate--copy-context
                (:constructor ptemplate--copy-context<-new)
                (:copier ptemplate--copy-context<-copy))
