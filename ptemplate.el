@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.2.0
+;; Version: 1.3.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -823,8 +823,8 @@ REGEXES is a list of strings as described there."
 This function is only supposed to be called from `ptemplate!'."
   (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
         (cl-delete-if
-         (lambda (src-targetf)
-           (string-match-p regex (ptemplate--file-mapping-src src-targetf)))
+         (lambda (mapping)
+           (string-match-p regex (ptemplate--file-mapping-src mapping)))
          (ptemplate--copy-context-file-map ptemplate--cur-copy-context))))
 
 (defun ptemplate--puthash-filemap (file-map table)
@@ -881,7 +881,7 @@ is a path relative to the expansion target.
 SRC can also be nil, in which case nothing would be copied, but
 TARGET would shadow mappings from inherited or included
 templates."
-  (cl-pushnew
+  (ptemplate--appendlf
    (ptemplate--file-mapping<-new
     :src (and src (ptemplate--normalize-user-path src))
     :target (ptemplate--normalize-user-path target))
@@ -931,8 +931,7 @@ files, in the :finalize block of `ptemplate!'."
 See `ptemplate--make-basename-regex' for details. As a special
 case, if a REGEX starts with /, it is interpreted as a template
 path to ignore (see `ptemplate--make-path-regex'\)."
-  (ptemplate--prune-template-files
-   (ptemplate--make-ignore-regex regexes)))
+  (ptemplate--prune-template-files (ptemplate--make-ignore-regex regexes)))
 
 (defun ptemplate-include (&rest dirs)
   "Use all files in DIRS for expansion.
