@@ -62,7 +62,9 @@ equivalent to result/, return nil and t otherwise."
       (ptemplate-test--cmpdir expand-dir result))))
 
 (defun ptemplate-test--lwarn-fail (type level message &rest args)
-  "An `lwarn' replacement that fails the current `ert-deftest'."
+  "An `lwarn' replacement that fails the current `ert-deftest'.
+TYPE, LEVEL, MESSAGE and ARGS are the same as in `lwarn', except
+that they are used to generate a failure message instead."
   (ert-fail (format "`lwarn' called: %S %s: %s" type level
                     (apply #'format message args))))
 
