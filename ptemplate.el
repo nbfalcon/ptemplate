@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.4.0
+;; Version: 1.4.1
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -581,7 +581,9 @@ manually copies files around in its .ptemplate.el :init block.
              ('yas (push (ptemplate--snippet-chain-mapping<-new
                           :src realsrc :target realtarget
                           :setup-hook snippet-setup-hook)
-                         yasnippets)))
+                         yasnippets))
+             (_ (lwarn '(ptemplate ptemplate-expand-template) :error
+                       "In mapping %S: unknown type %S" mapping type)))
 
            finally do
            (run-hooks 'ptemplate--before-snippet-hook)
