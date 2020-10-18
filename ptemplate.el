@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.3.0
+;; Version: 1.4.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -59,7 +59,8 @@
 Each function therein is called without arguments."))
 
 (cl-defstruct (ptemplate--snippet-chain
-               (:constructor ptemplate--snippet-chain<-new))
+               (:constructor ptemplate--snippet-chain<-new)
+               (:copier ptemplate--snippet-chain<-copy))
   "Holds all state needed for executing a snippet chain.
 An instance of this, `ptemplate--snippet-chain-context', is
 passed trough each buffer so that they can all share some state."
@@ -255,20 +256,6 @@ included."
            collect (if (file-directory-p (concat path file))
                        (file-name-as-directory file) file)))
 
-(defun ptemplate--auto-map-file (file)
-  "Associate FILE to a target file name.
-File specifies the template-relative path to a file in a
-template."
-  (if (member (file-name-extension file) '("keep" "yas" "autoyas"))
-      (file-name-sans-extension file)
-    file))
-
-(defun ptemplate--file-mapping<-auto (file)
-  "Map FILE using `ptemplate--auto-map-file'.
-Return a `ptemplate--file-mapping'."
-  (ptemplate--file-mapping<-new
-   :src file :target (ptemplate--auto-map-file file)))
-
 (defun ptemplate--list-template-dir-files (path)
   "`ptemplate--list-template-files', but include .ptemplate.el.
 PATH specifies the path to examine."
@@ -298,22 +285,6 @@ special files (e.g. .nocopy, .yas). Directories are included.
              ;; NOTE: these may be directories; don't ignore them in that case
              '("./.ptemplate.el" "./.ptemplate.elc")))
    (ptemplate--list-template-dir-files path)))
-
-(defun ptemplate--autoyas-expand
-    (src target &optional expand-env snippet-setup-hook)
-  "Expand yasnippet in file SRC to file TARGET.
-Expansion is done \"headless\", that is without showing buffers.
-EXPAND-ENV is an environment alist like in
-`ptemplate--snippet-chain-env'. Execute each function in
-SNIPPET-SETUP-HOOK before expanding the snippet."
-  (with-temp-file target
-    (require 'yasnippet)
-
-    (ptemplate--setup-snippet-env expand-env)
-    (mapc #'funcall snippet-setup-hook)
-
-    (yas-minor-mode 1)
-    (yas-expand-snippet (ptemplate--read-file src))))
 
 (defun ptemplate--list-dir (dir)
   "List DIR, including directories.
@@ -361,11 +332,24 @@ The underlying data-structure of
    nil :documentation
    "Where the SRC is mapped to.
 Relative to the expansion target.")
+  (type
+   'copy :documentation
+   "How this mapping is to be executed.
+Can be `copy', in which case it is copied using copy-file or a
+directory made for it, `yas', in which case it is expanded
+interactively in a snippet-chain and `autoyas', in which case it
+is expanded headlessly. Mappings from nil are handled by
+`copy'.")
   (snippet-setup-hook
    nil :documentation
    "List of functions run to set up this snippet.
 Only makes sense in snippet-chain files. See
 `ptemplate-snippet-setup'."))
+
+(defun ptemplate--file-mapping->snippet-p (mapping)
+  "Check if MAPPING's type corresponds to a snippet.
+These are defined as being expanded using `yasnippet'."
+  (memq (ptemplate--file-mapping-type mapping) '(yas autoyas)))
 
 (defun ptemplate--file-map->absoluteify (path file-map)
   "Make each relative mapping in FILE-MAP refer to PATH.
@@ -375,6 +359,33 @@ set the PREFIX to PATH, modifying FILE-MAP. Return the result."
     (setf (ptemplate--file-mapping-prefix mapping)
           (or (ptemplate--file-mapping-prefix mapping) path)))
   file-map)
+
+(defun ptemplate--auto-map-file (file)
+  "Associate FILE to a target file name.
+File specifies the template-relative path to a file in a
+template."
+  (if (member (file-name-extension file) '("keep" "yas" "autoyas"))
+      (file-name-sans-extension file)
+    file))
+
+(defun ptemplate--mapping-auto-type (src)
+  "Deduce the type of the mapping from SRC.
+See `ptemplate--file-mapping-type' for details."
+  (if src
+      (pcase (file-name-extension src)
+        ("yas" 'yas)
+        ("autoyas" 'yas)
+        (_ 'copy))
+    ;; nil maps
+    'copy))
+
+(defun ptemplate--file-mapping<-auto (file)
+  "Map FILE using `ptemplate--auto-map-file'.
+Return a `ptemplate--file-mapping'."
+  (ptemplate--file-mapping<-new
+   :src file :target (ptemplate--auto-map-file file)
+   :type (ptemplate--mapping-auto-type file)))
+
 
 (cl-defstruct (ptemplate--copy-context
                (:constructor ptemplate--copy-context<-new)
@@ -497,6 +508,22 @@ For use with `ptemplate--remove-duplicate-files'."
    "duplicate mappings encountered: \"%s\" came before \"%s\""
    earlier current))
 
+(defun ptemplate--autoyas-expand
+    (src target &optional expand-env snippet-setup-hook)
+  "Expand yasnippet in file SRC to file TARGET.
+Expansion is done \"headless\", that is without showing buffers.
+EXPAND-ENV is an environment alist like in
+`ptemplate--snippet-chain-env'. Execute each function in
+SNIPPET-SETUP-HOOK before expanding the snippet."
+  (with-temp-file target
+    (require 'yasnippet)
+
+    (ptemplate--setup-snippet-env expand-env)
+    (mapc #'funcall snippet-setup-hook)
+
+    (yas-minor-mode 1)
+    (yas-expand-snippet (ptemplate--read-file src))))
+
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
 SOURCE specifies the template's source directory and TARGET the
@@ -513,10 +540,12 @@ manually copies files around in its .ptemplate.el :init block.
   (cl-loop with snippet-env = `((ptemplate-source-directory . ,source)
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
+           with yasnippets = nil
            with dup-file-map = (ptemplate--copy-context-file-map context)
            with mappings = (ptemplate--remove-duplicate-files
                             dup-file-map #'ptemplate--warn-dup-mapping)
            for mapping in mappings
+
            for src = (ptemplate--file-mapping-src mapping)
            for targetf = (ptemplate--file-mapping-target mapping)
 
@@ -531,6 +560,8 @@ manually copies files around in its .ptemplate.el :init block.
            for snippet-setup-hook =
            (ptemplate--file-mapping-snippet-setup-hook mapping)
 
+           for type = (ptemplate--file-mapping-type mapping)
+
 ;;; `ptemplate--copy-context->execute': support nil maps
            if src do
            (make-directory
@@ -542,20 +573,20 @@ manually copies files around in its .ptemplate.el :init block.
             (if src-dir? realtarget (file-name-directory realtarget))
             t)
 
-           and unless src-dir?
-           if (string-suffix-p ".yas" src)
-           collect (ptemplate--snippet-chain-mapping<-new
-                    :src realsrc :target realtarget
-                    :setup-hook snippet-setup-hook) into yasnippets
-           else if (string-suffix-p ".autoyas" src)
-           do (ptemplate--autoyas-expand realsrc realtarget snippet-env
-                                         snippet-setup-hook)
-           else do (copy-file realsrc realtarget)
+           and unless src-dir? do
+           (pcase type
+             ('copy (copy-file realsrc realtarget))
+             ('autoyas (ptemplate--autoyas-expand realsrc realtarget snippet-env
+                                                  snippet-setup-hook))
+             ('yas (push (ptemplate--snippet-chain-mapping<-new
+                          :src realsrc :target realtarget
+                          :setup-hook snippet-setup-hook)
+                         yasnippets)))
 
            finally do
            (run-hooks 'ptemplate--before-snippet-hook)
            (ptemplate--snippet-chain->start
-            yasnippets snippet-env
+            (nreverse yasnippets) snippet-env
             (ptemplate--copy-context-finalize-hook context)
             (ptemplate--copy-context-snippet-conf-hook context))))
 
@@ -780,7 +811,7 @@ that \"(string-match-p (ptemplate--make-basename-regex
   "Make a regex matching PATH if some PATH is below it.
 The resulting regex shall match if some other path starts with
 PATH. Slashes should be used to separate directories in PATH, the
-necessary conversion being done for windows and msdos. The same
+necessary conversion being done for windows and MS DOS. The same
 caveats apply as for `ptemplate--make-basename-regex'."
   (declare (side-effect-free t))
   (concat "\\`" (regexp-quote (ptemplate--unix-to-native-path path))
@@ -806,6 +837,15 @@ will be converted to the platform's native ones."
   (ptemplate--unix-to-native-path
    (concat "./" (ptemplate--simplify-user-path path))))
 
+(defun ptemplate--normalize-user-path-file (path)
+  "Like `ptemplate--normalize-user-path', but yield a file.
+If PATH is equivalent the empty string,
+`ptemplate--normalize-user-path' yields \"./\". This isn't always
+desirable, so this function handles that edge case by returning
+\".\" instead."
+  ;; EDGE CASE: the inner s-exp may yield "./".
+  (directory-file-name (ptemplate--normalize-user-path path)))
+
 (defun ptemplate--make-ignore-regex (regexes)
   "Make a delete regex for `ptemplate-ignore'.
 REGEXES is a list of strings as described there."
@@ -814,7 +854,7 @@ REGEXES is a list of strings as described there."
    (cl-loop for regex in regexes collect
             (if (string-prefix-p "/" regex)
                 (ptemplate--make-path-regex
-                 (ptemplate--normalize-user-path regex))
+                 (ptemplate--normalize-user-path-file regex))
               (ptemplate--make-basename-regex regex)))
    "\\|"))
 
@@ -853,8 +893,8 @@ meaning that earlier FILE-MAPs take precedence. Do not remove
 duplicates in any FILE-MAP."
   (cl-loop with visited-targets = (make-hash-table :test #'equal)
            for file-map in file-maps
-           ;; we must use `append' here, as otherwise a wrong FILE-MAP will be
-           ;; inserted into VISITED-TARGETS
+           ;; we must use `append' here, as otherwise FILE-MAP would be
+           ;; modified before being inserted into VISITED-TARGETS
            append (ptemplate--override-filemap visited-targets file-map)
            do (ptemplate--puthash-filemap file-map visited-targets)))
 
@@ -873,18 +913,23 @@ directory path."
   (file-name-as-directory (ptemplate--normalize-user-path path)))
 
 ;;; .ptemplate.el API
-(defun ptemplate-map (src target)
+(defun ptemplate-map (src target &optional type)
   "Map SRC to TARGET for expansion.
 SRC is a path relative to the ptemplate being expanded and TARGET
 is a path relative to the expansion target.
 
 SRC can also be nil, in which case nothing would be copied, but
 TARGET would shadow mappings from inherited or included
-templates."
-  (ptemplate--appendlf
+templates.
+
+TYPE specifies the type of the mapping (deduced automatically
+otherwise). See `ptemplate--file-mapping-type' for the
+possibilities."
+  (ptemplate--appendf
    (ptemplate--file-mapping<-new
     :src (and src (ptemplate--normalize-user-path src))
-    :target (ptemplate--normalize-user-path target))
+    :target (ptemplate--normalize-user-path target)
+    :type (or type (ptemplate--mapping-auto-type src)))
    (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
 (defun ptemplate-remap (src target)
@@ -921,7 +966,7 @@ remap it to that same directory relative to TARGET."
 
 (defun ptemplate-copy-target (src target)
   "Copy SRC to TARGET, both relative to the expansion target.
-Useful if a single template expansion needs to be mapped to two
+Useful if a single snippet expansion needs to be mapped to two
 files, in the :finalize block of `ptemplate!'."
   (copy-file (concat ptemplate-target-directory src)
              (concat ptemplate-target-directory target)))
@@ -1030,10 +1075,6 @@ Return the result of the last BODY form."
         (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
 
 ;;; snippet configuration
-(defun ptemplate--snippet-name-p (f)
-  "Check if F names an interactive or non-interactive snippet."
-  (member (file-name-extension f) '("autoyas" "yas")))
-
 (defun ptemplate-snippet-setup (snippets callback)
   "Run CALLBACK to configure SNIPPETS.
 SNIPPETS is a list of target-relative file snippet targets
@@ -1046,7 +1087,7 @@ called and can configure them further. All variables defined in
            for src = (ptemplate--file-mapping-src mapping)
            for target = (ptemplate--file-mapping-target mapping)
            if (member target snippets)
-           if (ptemplate--snippet-name-p src) do
+           if (ptemplate--file-mapping->snippet-p src) do
            (ptemplate--appendf
             callback (ptemplate--file-mapping-snippet-setup-hook mapping))
            else do
@@ -1142,7 +1183,7 @@ are:
         root. Practically, this means not adding its files and
         including it. Evaluated before :init.
 
-:remap ARG shall be of the form (SRC TARGET\; calls
+:remap ARG shall be of the form (SRC TARGET); calls
        `ptemplate-remap' on the results of evaluating SRC and
        TARGET. Run after :init.
 
@@ -1152,8 +1193,8 @@ are:
            insignificant.
 
 :map Syntax sugar for `ptemplate-map'. ARG must be of the form
-     (SRC TARGET), both of which are ordinary LISP expressions.
-     Run after :remap and :remap-rec.
+     (SRC TARGET TYPE), both of which are ordinary LISP
+     expressions. Run after :remap and :remap-rec.
 
 :inherit Syntax sugar for `ptemplate-inherit'. FORMs may be
          arbitrary Lisp expressions (not just strings). Executed
@@ -1212,7 +1253,11 @@ internal details, which are subject to change at any time."
           (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-forms))
           (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
                             remap-forms))
-          (:map (push `(ptemplate-map ,(car arg) ,(cadr arg)) map-forms))
+          (:map (let ((src (car arg))
+                      (target (cadr arg))
+                      (type (caddr arg)))
+                  (push `(ptemplate-map ,src ,target ,@(when type (list type)))
+                        map-forms)))
           (:late (push arg late-forms))
           (:nokill (push arg nokill-buffers))
           (:snippet-setup

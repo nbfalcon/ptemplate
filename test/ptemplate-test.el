@@ -81,9 +81,9 @@ See test/rsc/expansion-tests/README.md for details."
           (cl-delete-if-not
            #'file-directory-p
            (ptemplate--list-dir-dirs (ptemplate-test--rsc "expansion-tests"))))
-         (failed-templates (ptemplate-test--with-fatal-warnings
-                            (cl-delete-if
-                             #'ptemplate-test--expansion test-templates)))
+         (failed-templates
+          (ptemplate-test--with-fatal-warnings
+           (cl-delete-if #'ptemplate-test--expansion test-templates)))
          (failed-expansions (mapcar #'file-name-nondirectory failed-templates)))
     (should (eq failed-expansions nil))))
 
