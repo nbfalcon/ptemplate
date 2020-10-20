@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.5.1
+;; Version: 2.0.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -373,11 +373,11 @@ template."
 See `ptemplate--file-mapping-type' for details."
   (if src
       (pcase (file-name-extension src)
-        ("yas" 'yas)
-        ("autoyas" 'yas)
-        (_ 'copy))
+        ("yas" :yas)
+        ("autoyas" :autoyas)
+        (_ :copy))
     ;; nil maps
-    'copy))
+    :copy))
 
 (defun ptemplate--file-mapping<-auto (file)
   "Map FILE using `ptemplate--auto-map-file'.
@@ -574,10 +574,10 @@ manually copies files around in its .ptemplate.el :init block.
 
            and unless src-dir? do
            (pcase type
-             ('copy (copy-file realsrc realtarget))
-             ('autoyas (ptemplate--autoyas-expand realsrc realtarget snippet-env
+             (:copy (copy-file realsrc realtarget))
+             (:autoyas (ptemplate--autoyas-expand realsrc realtarget snippet-env
                                                   snippet-setup-hook))
-             ('yas (push (ptemplate--snippet-chain-mapping<-new
+             (:yas (push (ptemplate--snippet-chain-mapping<-new
                           :src realsrc :target realtarget
                           :setup-hook snippet-setup-hook)
                          yasnippets))

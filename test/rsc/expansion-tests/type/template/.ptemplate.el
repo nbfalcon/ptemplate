@@ -8,6 +8,6 @@
 
 (require 'ptemplate)
 
-(ptemplate! :ignore "/" :map ("/nonsnippet.autoyas" "/snippet.autoyas" 'copy))
+(ptemplate! :ignore "/" :map ("/nonsnippet.autoyas" "/snippet.autoyas" :copy))
 
 ;;; .ptemplate.el ends here
