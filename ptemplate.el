@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 1.4.1
+;; Version: 1.5.1
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -933,6 +933,14 @@ possibilities."
     :type (or type (ptemplate--mapping-auto-type src)))
    (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
+(defun ptemplate-automap (src &optional type)
+  "Map SRC to an automatically deduced target.
+Map SRC to a target as if it were part of the template.
+
+TYPE, like in `ptemplate-map', specifies the type of the
+mapping."
+  (ptemplate-map src (ptemplate--auto-map-file src) type))
+
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
 SRC shall be a template-relative path separated by slashes
@@ -1180,6 +1188,14 @@ are:
 :ignore Syntax sugar for `ptemplate-ignore'. Files are pruned
         before :init.
 
+:automap Specify files to `ptemplate-automap'. Executed after
+         :ignore. Can be useful to reorder snippets: first
+         :ignore \"/\", then :automap them in the correct order.
+
+:automap-typed Like :automap, but of the form (SRC TYPE); SRC and
+               TYPE are passed to a single invocation of
+               `ptemplate-automap' in that order.
+
 :subdir Make some template-relative paths appear to be in the
         root. Practically, this means not adding its files and
         including it. Evaluated before :init.
@@ -1223,7 +1239,7 @@ internal details, which are subject to change at any time."
         finalize-forms open-fg open-bg
         snippet-env
         around-let
-        ignore-regexes ignore-expressions
+        ignore-expressions automap-forms
         inherited-templates
         include-dirs
         remap-forms map-forms
@@ -1243,20 +1259,22 @@ internal details, which are subject to change at any time."
           (:snippet-let
            (push (if (consp arg) (car arg) arg) snippet-env)
            (push arg around-let))
-          (:ignore (push arg (if (stringp arg) ignore-regexes
-                               ignore-expressions)))
+          (:ignore (push arg ignore-expressions))
+          (:automap (push `(ptemplate-automap ,arg) automap-forms))
+          (:automap-typed
+           (cl-destructuring-bind (src &optional type) arg
+             (push `(ptemplate-automap ,src ,@(when type (list type)))
+                   automap-forms)))
           (:inherit (push arg inherited-templates))
           (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
                      (push (concat (ptemplate--unix-to-native-path "/")
                                    simplified-path)
-                           ignore-regexes)
+                           ignore-expressions)
                      (push simplified-path include-dirs)))
           (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-forms))
           (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
                             remap-forms))
-          (:map (let ((src (car arg))
-                      (target (cadr arg))
-                      (type (caddr arg)))
+          (:map (cl-destructuring-bind (src target &optional type) arg
                   (push `(ptemplate-map ,src ,target ,@(when type (list type)))
                         map-forms)))
           (:late (push arg late-forms))
@@ -1272,10 +1290,9 @@ internal details, which are subject to change at any time."
      (nreverse around-let)
      (macroexp-progn
       (nconc
-       (when ignore-regexes
-         `((ptemplate-ignore ,@ignore-regexes)))
        (when ignore-expressions
          `((ptemplate-ignore ,@ignore-expressions)))
+       (nreverse automap-forms)
        (when include-dirs
          ;; include dirs specified first take precedence
          `((ptemplate-include
