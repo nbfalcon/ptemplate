@@ -153,7 +153,7 @@ Variables are set buffer-locally."
          (realchain (ptemplate--snippet-chain-snippets context))
          (next (car realchain)))
     (when realchain
-      ;; if the snippet chain is empty, pop fails.
+      ;; If the snippet chain is empty, pop fails.
       (pop (ptemplate--snippet-chain-snippets context)))
 
     (cond
@@ -335,11 +335,11 @@ Relative to the expansion target.")
   (type
    'copy :documentation
    "How this mapping is to be executed.
-Can be `copy', in which case it is copied using copy-file or a
-directory made for it, `yas', in which case it is expanded
-interactively in a snippet-chain and `autoyas', in which case it
+Can be `:copy', in which case it is copied using copy-file or a
+directory made for it, `:yas', in which case it is expanded
+interactively in a snippet-chain and `:autoyas', in which case it
 is expanded headlessly. Mappings from nil are handled by
-`copy'.")
+`:copy'.")
   (snippet-setup-hook
    nil :documentation
    "List of functions run to set up this snippet.
@@ -349,7 +349,7 @@ Only makes sense in snippet-chain files. See
 (defun ptemplate--file-mapping->snippet-p (mapping)
   "Check if MAPPING's type corresponds to a snippet.
 These are defined as being expanded using `yasnippet'."
-  (memq (ptemplate--file-mapping-type mapping) '(yas autoyas)))
+  (memq (ptemplate--file-mapping-type mapping) '(:yas :autoyas)))
 
 (defun ptemplate--file-map->absoluteify (path file-map)
   "Make each relative mapping in FILE-MAP refer to PATH.
@@ -1093,10 +1093,9 @@ called and can configure them further. All variables defined in
   (cl-loop with snippets = (mapcar #'ptemplate--normalize-user-path snippets)
            for mapping in (ptemplate--copy-context-file-map
                            ptemplate--cur-copy-context)
-           for src = (ptemplate--file-mapping-src mapping)
            for target = (ptemplate--file-mapping-target mapping)
            if (member target snippets)
-           if (ptemplate--file-mapping->snippet-p src) do
+           if (ptemplate--file-mapping->snippet-p mapping) do
            (ptemplate--appendf
             callback (ptemplate--file-mapping-snippet-setup-hook mapping))
            else do
