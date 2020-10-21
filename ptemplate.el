@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.0.0
+;; Version: 2.1.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -1061,6 +1061,7 @@ take precedence."
 
 (defun ptemplate-source (dir)
   "Return DIR as if relative to `ptemplate-source-directory'."
+  ;; NOTE: `ptemplate-source-directory' ends in a slash.
   (concat ptemplate-source-directory dir))
 
 (defun ptemplate-target (dir)
@@ -1143,7 +1144,7 @@ buffers should not be killed in `ptemplate-snippet-chain-next'."
   "Like `ptemplate-nokill-snippets', but SNIPPETS is &rest."
   (ptemplate-nokill-snippets snippets))
 
-;; NOTE: ;;;###autoload is unnecessary here, as `ptemplate!' is only useful in
+;; ;;;###autoload is unnecessary here, as `ptemplate!' is only useful in
 ;; .ptemplate.el files, which are only ever loaded from
 ;; `ptemplate-expand-template', at which point `ptemplate' is already loaded.
 (defmacro ptemplate! (&rest args)
@@ -1216,6 +1217,9 @@ are:
          arbitrary Lisp expressions (not just strings). Executed
          after :map.
 
+:inherit-rel Like :inherit, but the paths are relative to the
+             expansion source (`ptemplate-source').
+
 :open-bg Expressions yielding files (target-relative) to open
          with `find-file-noselect' at the very end of expansion.
 
@@ -1265,6 +1269,7 @@ internal details, which are subject to change at any time."
              (push `(ptemplate-automap ,src ,@(when type (list type)))
                    automap-forms)))
           (:inherit (push arg inherited-templates))
+          (:inherit-rel (push `(ptemplate-source ,arg) inherited-templates))
           (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
                      (push (concat (ptemplate--unix-to-native-path "/")
                                    simplified-path)

@@ -7,8 +7,7 @@
 
 (require 'ptemplate)
 
-(ptemplate! :init
-            (ptemplate-inherit (ptemplate-source "../../inherit/template"))
-            (ptemplate-ignore "file"))
+(ptemplate! :inherit-rel "../../inherit/template"
+            :late (ptemplate-ignore "file"))
 
 ;;; .ptemplate.el ends here

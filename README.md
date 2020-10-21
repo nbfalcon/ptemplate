@@ -115,6 +115,7 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :remap-rec Like :remap, but use `ptemplate-remap-rec` instead.
 - :map Syntax sugar for `ptemplate-map`.
 - :inherit Syntax sugar for `ptemplate-inherit`.
+- :inherit-rel Like :inherit, but relative to the current template.
 - :late Like :init, but after :inherit
 - :open-bg Open target files in the background at the end of expansion.
 - :open Open target files in the foreground at the end of expansion.

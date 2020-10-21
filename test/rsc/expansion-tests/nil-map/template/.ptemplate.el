@@ -8,7 +8,6 @@
 
 (require 'ptemplate)
 
-(ptemplate! :map (nil "/file")
-            :inherit (ptemplate-source "../../basic/template/"))
+(ptemplate! :map (nil "/file") :inherit-rel "../../basic/template/")
 
 ;;; .ptemplate.el ends here

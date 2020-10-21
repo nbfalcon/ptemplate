@@ -7,6 +7,6 @@
 
 (require 'ptemplate)
 
-(ptemplate! :inherit (ptemplate-source "../../basic/template/"))
+(ptemplate! :inherit-rel "../../basic/template/")
 
 ;;; .ptemplate.el ends here
