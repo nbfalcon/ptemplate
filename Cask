@@ -6,5 +6,4 @@
 (development
  (depends-on "ert-runner")
 
- (depends-on "helm")
- (depends-on "with-simulated-input"))
+ (depends-on "helm"))

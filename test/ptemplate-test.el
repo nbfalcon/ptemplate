@@ -6,17 +6,14 @@
 ;;; Code:
 
 (require 'ptemplate)
-
 (require 'ert)
-
 (eval-when-compile (require 'cl-lib))   ; `cl-letf'
-(require 'with-simulated-input)         ; `ptemplate-prompt'
 
 ;;; `defvar' declare
 (defvar ert-runner-test-path)
 
 (defun ptemplate-test--rsc (path)
-  "Yield PATH relative to test/rsc."
+  "Expand PATH relative to \"test/rsc\"."
   (expand-file-name (concat (file-name-as-directory "rsc") path)
                     ert-runner-test-path))
 
@@ -38,8 +35,8 @@ an error. Return the result of the last BODY form."
   `(let ((--ptemplate-test-temp-dir-- (make-temp-file "ptemplate-test" t)))
      (unwind-protect
          (let ((default-directory --ptemplate-test-temp-dir--)) ,@body)
-       ;; NOTE this should be safe, as --ptemplate-test-temp-dir-- wouldn't ever
-       ;; be modified; however, `delete-directory' recursively is still scary.
+       ;; This should be safe, as --ptemplate-test-temp-dir-- wouldn't ever be
+       ;; modified; however, `delete-directory' recursively is still scary.
        (delete-directory --ptemplate-test-temp-dir-- t))))
 
 (defun ptemplate-test--cmpdir (a b)
@@ -104,8 +101,8 @@ with a list of templates and virtually simulate RET after each
 call, which should hopefully not result in an error."
   (let ((test-templates (ptemplate-test--list-test-templates)))
     (dolist (prompt-fn ptemplate-test-prompt-template-functions)
-      (with-simulated-input "RET"
-        (funcall prompt-fn test-templates)))))
+      (execute-kbd-macro
+       (kbd "RET") 1 (lambda () (funcall prompt-fn test-templates))))))
 
 (provide 'ptemplate-test)
 ;;; ptemplate-test.el ends here
