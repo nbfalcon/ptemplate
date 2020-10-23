@@ -6,8 +6,11 @@
 ;;; Code:
 
 (require 'ptemplate)
+
 (require 'ert)
+
 (eval-when-compile (require 'cl-lib))   ; `cl-letf'
+(require 'with-simulated-input)         ; `ptemplate-prompt'
 
 ;;; `defvar' declare
 (defvar ert-runner-test-path)
@@ -89,14 +92,20 @@ See test/rsc/expansion-tests/README.md for details."
          (failed-expansions (mapcar #'file-name-nondirectory failed-templates)))
     (should (eq failed-expansions nil))))
 
-;; (ert-deftest ptemplate-prompt ()
-;;   "Test the prompt functions.
-;; The prompt functions are currently
-;; `ptemplate-prompt-template-completing-read' and
-;; `ptemplate-prompt-template-helm'."
-;;   (let ((test-templates (ptemplate-test--list-test-templates)))
-;;     (funcall #'ptemplate-prompt-template-helm test-templates)
-;;     (funcall #'ptemplate-prompt-template-completing-read test-templates)))
+(defconst ptemplate-test-prompt-template-functions
+  '(ptemplate-prompt-template-completing-read ptemplate-prompt-template-helm)
+  "A list of functions for prompting templates.
+See the test `ptemplate-prompt' for details.")
+
+(ert-deftest ptemplate-prompt ()
+  "A smoketest for the prompt functions.
+Call each function in `ptemplate-test-prompt-template-functions'
+with a list of templates and virtually simulate RET after each
+call, which should hopefully not result in an error."
+  (let ((test-templates (ptemplate-test--list-test-templates)))
+    (dolist (prompt-fn ptemplate-test-prompt-template-functions)
+      (with-simulated-input "RET"
+        (funcall prompt-fn test-templates)))))
 
 (provide 'ptemplate-test)
 ;;; ptemplate-test.el ends here

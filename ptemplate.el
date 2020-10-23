@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.1.0
+;; Version: 2.2.0
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -699,21 +699,20 @@ The prompt is a list of \"NAME (TYPE)\" and uses
 
 TEMPLATES is as returned by `ptemplate-list-templates'.
 
-This function's API is not stable, and it for use only for use in
-`ptemplate-template-prompt-function' and conforms to its API."
+This function's API is not stable, and it for use only as a
+`ptemplate-template-prompt-function'."
   (let ((ptemplates (ptemplate--list-templates-completing-read templates)))
-    (or
-     (alist-get (completing-read "Select template: " ptemplates
+    (cdr (assoc (completing-read "Select template: " ptemplates
                                  nil t nil 'ptemplate-completing-read-history)
-                ptemplates nil nil #'string=)
-     (user-error "Please select a template"))))
+                ptemplates #'string=))))
 
 (defcustom ptemplate-template-prompt-function
   #'ptemplate-prompt-template-completing-read
   "Prompting method to use to read a template from the user.
 The function shall take a single argument, the list of templates
 \(as returned by `ptemplates-list-templates'\) and return the
-path to the template as a string."
+path to the template as a string. If the user fails to select a
+template, the function may return nil."
   :group 'ptemplate
   :type '(radio
           (const :tag "completing-read (ivy, helm, ...)"
@@ -749,6 +748,17 @@ directory."
                                ptemplate-default-workspace nil #'string=)))
     (read-file-name "Create project: " workspace workspace)))
 
+(defun ptemplate--prompt-template (templates caller)
+  "Prompt the user for a template.
+Prompt with `ptemplate-template-prompt-function' and pass
+TEMPLATES to it.
+
+If the user fails to specify an error, throw a `user-error', as
+if from CALLER (a symbol), telling the user to select a
+template."
+  (or (funcall ptemplate-template-prompt-function templates)
+      (user-error "`%s': please select a template" caller)))
+
 (defcustom ptemplate-post-expand-hook '()
   "Hook run after expanding a template finishes.
 All snippet variables are still bound when this is executed, and
@@ -764,9 +774,11 @@ The functions therein are called without arguments."
 If called interactively, SOURCE is prompted using
 `ptemplate-template-prompt-function' and TARGET using
 `read-file-name'"
-  (interactive (list (funcall ptemplate-template-prompt-function
-                              (ptemplate-list-directory-templates))
-                     (read-file-name "Expand to: ")))
+  (interactive
+   (list
+    (ptemplate--prompt-template
+     (ptemplate-list-directory-templates) #'ptemplate-expand-template)
+    (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
     ;; ensure `ptemplate-post-expand-hook' is run
     (ptemplate--appendlf ptemplate-post-expand-hook
@@ -783,8 +795,9 @@ interactively, TARGET is prompted using `read-file-name', with
 the initial directory looked up in `ptemplate-workspace-alist'
 using SOURCE's type, defaulting to `ptemplate-default-workspace'.
 If even that is nil, use `default-directory'."
-  (interactive (let ((template (funcall ptemplate-template-prompt-function
-                                        (ptemplate-list-project-templates))))
+  (interactive (let ((template (ptemplate--prompt-template
+                                (ptemplate-list-project-templates)
+                                #'ptemplate-new-project)))
                  (list template (ptemplate--prompt-target template))))
   (when (file-exists-p target)
     (user-error "Directory %s already exists" target))

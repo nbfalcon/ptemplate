@@ -4,5 +4,7 @@
 (package-file "ptemplate.el")
 
 (development
+ (depends-on "ert-runner")
+
  (depends-on "helm")
- (depends-on "ert-runner"))
+ (depends-on "with-simulated-input"))
