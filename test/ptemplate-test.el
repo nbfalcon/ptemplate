@@ -7,7 +7,7 @@
 
 (require 'ptemplate)
 (require 'ert)
-(eval-when-compile (require 'cl-lib))   ; `cl-letf'
+(require 'cl-lib)
 
 ;;; `defvar' declare
 (defvar ert-runner-test-path)
