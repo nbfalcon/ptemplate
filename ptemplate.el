@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.2.0
+;; Version: 2.2.1
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -287,8 +287,8 @@ special files (e.g. .nocopy, .yas). Directories are included.
 
 (defun ptemplate--list-dir (dir)
   "List DIR, including directories.
-A list of the full paths of each element is returned. The special
-directories \".\" and \"..\" are ignored."
+A list of the full paths of each file in it is returned. The
+special directories \".\" and \"..\" are ignored."
   (cl-delete-if (lambda (f) (or (string= (file-name-base f) ".")
                            (string= (file-name-base f) "..")))
                 (directory-files dir t)))
