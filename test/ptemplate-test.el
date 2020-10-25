@@ -1,4 +1,4 @@
-;;; ptemplate-test.el --- ptemplate's ert test suite -*- lexical-binding: t -*-
+;;; ptemplate-test.el --- Test suite of ptemplate -*- lexical-binding: t -*-
 
 ;;; Commentary:
 ;; ptemplate's ert-based test suite. Run with 'cask exec ert-runner'.
