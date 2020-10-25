@@ -1,12 +1,12 @@
-build:
-	cask build
 all: build
+build: ptemplate.el
+	cask build
 
 clean:
 	$(RM) *.elc
 
-test:
+check:
 	cask exec ert-runner
-check: test
+test: check
 
-.PHONY: all build clean test
+.PHONY: check clean
