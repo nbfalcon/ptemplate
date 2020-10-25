@@ -205,11 +205,9 @@ others."
   (interactive)
   (unless ptemplate--snippet-chain-context
     (user-error "No more snippets to expand"))
-  ;; snippet chain cannot be nil, so `nconc' will append to it, modifying it
-  ;; across all buffers.
-  (nconc (ptemplate--snippet-chain-snippets
-          ptemplate--snippet-chain-context)
-         (list (current-buffer)))
+  (ptemplate--appendf
+   (ptemplate--snippet-chain-snippets ptemplate--snippet-chain-context)
+   (current-buffer))
   (ptemplate--snippet-chain->continue))
 
 (defun ptemplate--snippet-chain->start
