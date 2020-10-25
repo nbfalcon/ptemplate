@@ -6,4 +6,4 @@
 (development
  (depends-on "ert-runner")
 
- (depends-on "helm"))
+ (depends-on "helm-core"))
