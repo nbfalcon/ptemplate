@@ -31,7 +31,7 @@ Create a temporary directory and evaluate BODY in it. The
 temporary directory is bound to `default-directory' and safely
 deleted after executing BODY \(recursively\), even if it throws
 an error. Return the result of the last BODY form."
-  (declare (indent 0))
+  (declare (indent 0) (debug t))
   `(let ((--ptemplate-test-temp-dir-- (make-temp-file "ptemplate-test" t)))
      (unwind-protect
          (let ((default-directory --ptemplate-test-temp-dir--)) ,@body)
@@ -52,10 +52,12 @@ Return t if that is the case and nil otherwise."
 DIR shall specify a directory consisting of two directories:
 template/ and result/. If template/ expands to a directory not
 equivalent to result/, return nil and t otherwise."
+  ;; Do `expand-file-name' now, as `ptemplate-test--with-temp-dir' overrides
+  ;; `default-directory'.
   (let ((template (expand-file-name
-                   (concat (file-name-as-directory dir) "template/")))
+                   (concat (file-name-as-directory dir) "template")))
         (result (expand-file-name
-                 (concat (file-name-as-directory dir) "result/")))
+                 (concat (file-name-as-directory dir) "result")))
         (expand-dir "./expansion"))
     (ptemplate-test--with-temp-dir
       (ptemplate-expand-template template expand-dir)
@@ -73,6 +75,7 @@ that they are used to generate a failure message instead."
 Return the result of the last BODY expression.
 
 Currently, only `lwarn' is handled."
+  (declare (debug t))
   `(cl-letf (((symbol-function #'lwarn) #'ptemplate-test--lwarn-fail))
      ,@body))
 

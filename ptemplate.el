@@ -250,11 +250,13 @@ platform's equivalent) of all files and directories within it.
 Unlike `directory-files-recursively', directories end in the
 platform's directory separator. \".\" and \"..\" are not
 included."
-  (setq path (file-name-as-directory path))
-  (cl-loop for file in (let ((default-directory (expand-file-name path)))
-                         (directory-files-recursively "." "" t))
-           collect (if (file-directory-p (concat path file))
-                       (file-name-as-directory file) file)))
+  (cl-loop for file in (directory-files-recursively path "" t) collect
+           (ptemplate--unix-to-native-path
+            (concat
+             "./"
+             (file-relative-name
+              (if (file-directory-p file) (file-name-as-directory file) file)
+              path)))))
 
 (defun ptemplate--list-template-dir-files (path)
   "`ptemplate--list-template-files', but include .ptemplate.el.
@@ -281,9 +283,8 @@ special files (e.g. .nocopy, .yas). Directories are included.
 .ptemplate.el and .ptemplate.elc are removed."
   (cl-delete-if
    (lambda (mapping)
-     (member (ptemplate--file-mapping-src mapping)
-             ;; NOTE: these may be directories; don't ignore them in that case
-             '("./.ptemplate.el" "./.ptemplate.elc")))
+     (string-match-p (ptemplate--unix-to-native-path "./.ptemplate.elc?\\'")
+                     (ptemplate--file-mapping-src mapping)))
    (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--list-dir (dir)
