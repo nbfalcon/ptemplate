@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.2.1
+;; Version: 2.2.2
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -40,6 +40,20 @@
 ;;; global `declare-function'
 (declare-function yas-minor-mode "yasnippet" (&optional arg))
 (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
+
+;;; common utilities (also for the snippet chain)
+
+(defmacro ptemplate--appendlf (newels place)
+  "Add list NEWELS to the end of list PLACE."
+  (declare (debug (form gv-place)))
+  (macroexp-let2 macroexp-copyable-p x newels
+    (gv-letplace (getter setter) place
+      (funcall setter `(nconc ,getter ,x)))))
+
+(defmacro ptemplate--appendf (newelt place)
+  "Add NEWELT to the end of list PLACE."
+  (declare (debug (form gv-place)))
+  `(ptemplate--appendlf (list ,newelt) ,place))
 
 ;;; snippet-chain subsystem
 
@@ -301,18 +315,6 @@ does that already."
   (macroexp-let2 macroexp-copyable-p x newels
     (gv-letplace (getter setter) place
       (funcall setter `(nconc ,x ,getter)))))
-
-(defmacro ptemplate--appendlf (newels place)
-  "Add list NEWELS to the end of list PLACE."
-  (declare (debug (form gv-place)))
-  (macroexp-let2 macroexp-copyable-p x newels
-    (gv-letplace (getter setter) place
-      (funcall setter `(nconc ,getter ,x)))))
-
-(defmacro ptemplate--appendf (newelt place)
-  "Add NEWELT to the end of list PLACE."
-  (declare (debug (form gv-place)))
-  `(ptemplate--appendlf (list ,newelt) ,place))
 
 ;;; copy context
 (cl-defstruct (ptemplate--file-mapping
