@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.2.2
+;; Version: 2.2.3
 
 ;;; Commentary:
 ;; Creating projects can be a lot of work. Cask files need to be set up, a
@@ -46,9 +46,7 @@
 (defmacro ptemplate--appendlf (newels place)
   "Add list NEWELS to the end of list PLACE."
   (declare (debug (form gv-place)))
-  (macroexp-let2 macroexp-copyable-p x newels
-    (gv-letplace (getter setter) place
-      (funcall setter `(nconc ,getter ,x)))))
+  `(cl-callf nconc ,place ,newels))
 
 (defmacro ptemplate--appendf (newelt place)
   "Add NEWELT to the end of list PLACE."
@@ -255,6 +253,12 @@ platform's equivalent."
       (replace-regexp-in-string "/" "\\" path nil t)
     path))
 
+(defun ptemplate--maybe-dirify (path)
+  "Make PATH a directory path if it is one.
+If path is a directory (as determined by `file-directory-p'), run
+it trough `file-name-as-directory', otherwise yield PATH as-is."
+  (if (file-directory-p path) (file-name-as-directory path) path))
+
 (defun ptemplate--dir-find-relative (path)
   "List all files in PATH recursively.
 The list is a string of paths beginning with ./ (or the
@@ -264,11 +268,8 @@ platform's directory separator. \".\" and \"..\" are not
 included."
   (cl-loop for file in (directory-files-recursively path "" t) collect
            (ptemplate--unix-to-native-path
-            (concat
-             "./"
-             (file-relative-name
-              (if (file-directory-p file) (file-name-as-directory file) file)
-              path)))))
+            (concat "./" (file-relative-name
+                          (ptemplate--maybe-dirify file) path)))))
 
 (defun ptemplate--list-template-dir-files (path)
   "`ptemplate--list-template-files', but include .ptemplate.el.
@@ -312,9 +313,7 @@ special directories \".\" and \"..\" are ignored."
 There is no single-element version of this, because `cl-push'
 does that already."
   (declare (debug (form gv-place)))
-  (macroexp-let2 macroexp-copyable-p x newels
-    (gv-letplace (getter setter) place
-      (funcall setter `(nconc ,x ,getter)))))
+  `(cl-callf2 nconc ,newels ,place))
 
 ;;; copy context
 (cl-defstruct (ptemplate--file-mapping
@@ -840,7 +839,7 @@ separator conversion is not performed."
   (declare (side-effect-free t))
   (let* ((paths (split-string path "/"))
          (paths (cl-delete-if #'string-empty-p paths))
-         (paths (cl-delete-if (apply-partially #'string= ".") paths)))
+         (paths (cl-delete "." paths :test #'string=)))
     (string-join paths "/")))
 
 (defun ptemplate--normalize-user-path (path)
@@ -860,6 +859,12 @@ desirable, so this function handles that edge case by returning
 \".\" instead."
   ;; EDGE CASE: the inner s-exp may yield "./".
   (directory-file-name (ptemplate--normalize-user-path path)))
+
+(defun ptemplate--normalize-user-path-dir (path)
+  "`ptemplate--normalize-user-path', but yield a directory.
+PATH is transformed according to it and the result made a
+directory path."
+  (file-name-as-directory (ptemplate--normalize-user-path path)))
 
 (defun ptemplate--make-ignore-regex (regexes)
   "Make a delete regex for `ptemplate-ignore'.
@@ -920,12 +925,6 @@ Store the result in `ptemplate--copy-context-file-map'.
 See `ptemplate--merge-filemaps' for details."
   (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context)
         (ptemplate--merge-filemaps file-maps)))
-
-(defun ptemplate--normalize-user-path-dir (path)
-  "`ptemplate--normalize-user-path', but yield a directory.
-PATH is transformed according to it and the result made a
-directory path."
-  (file-name-as-directory (ptemplate--normalize-user-path path)))
 
 ;;; .ptemplate.el API
 (defun ptemplate-map (src target &optional type)
@@ -958,8 +957,8 @@ mapping."
 (defun ptemplate-remap (src target)
   "Remap template file SRC to TARGET.
 SRC shall be a template-relative path separated by slashes
-\(conversion is done for windows\). Using .. in SRC will not work.
-TARGET shall be the destination, relative to the expansion
+\(conversion is done for windows\). Using .. in SRC will not
+work. TARGET shall be the destination, relative to the expansion
 target. See `ptemplate--normalize-user-path' for SRC name rules.
 
 Note that directories are not recursively remapped, which means
@@ -1082,21 +1081,26 @@ take precedence."
   "Return DIR as if relative to `ptemplate-target-directory'."
   (concat ptemplate-target-directory dir))
 
-(defmacro ptemplate-with-file-sandbox (&rest body)
-  "Execute BODY with an isolated file map.
-The file map in which BODY is executed is empty and appended to
-the global one afterwards.
+(defun ptemplate-in-file-sandbox (f)
+  "`funcall' F with an isolated filemap.
+The file map in which F is executed is initially empty and
+appended to the global one afterwards.
 
-Return the result of the last BODY form."
-  (declare (indent 0))
-  `(let ((--ptemplate-old-filemap--
+Return the result of calling F."
+  (let ((old-filemap
           (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
      (setf (ptemplate--copy-context-file-map ptemplate--cur-copy-context) nil)
      (prog1
-         (progn ,@body)
+         (funcall f)
        (ptemplate--prependlf
-        --ptemplate--old-filemap--
+        old-filemap
         (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))))
+
+(defmacro ptemplate-with-file-sandbox (&rest body)
+  "Like `ptemplate-in-file-sandbox', but as a macro.
+Return the result of the last BODY form."
+  (declare (indent 0))
+  `(ptemplate-file-sandbox (lambda () ,@body)))
 
 ;;; snippet configuration
 (defun ptemplate-snippet-setup (snippets callback)

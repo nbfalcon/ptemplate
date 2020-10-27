@@ -141,6 +141,7 @@ Some other useful functions include:
   `ptemplate-include-overriding` is to `ptemplate-include`.
 - `ptemplate-with-file-sandbox`: execute BODY with a detached file map (use to
   modify an inherited template)
+- `ptemplate-in-file-sandbox`: like the above, but call a function instead
   
 ptemplate also includes facilities to configure snippet-chain buffers further:
 - `ptemplate-snippet-setup`: configure some snippet-chain targets using lisp

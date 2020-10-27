@@ -25,19 +25,25 @@
   "Template directories can contain files."
   (ptemplate-test--list-test-templates))
 
+(defun ptemplate-test--in-temp-dir (f)
+  "`funcall' F in a temporary.
+Create a temporary directory and call F in it. The temporary
+directory is bound to `default-directory' and safely deleted
+afterwards (recursively), even if F throws an error. Return the
+result of calling F."
+  (let ((--ptemplate-test-temp-dir-- (make-temp-file "ptemplate-test" t)))
+    (unwind-protect
+        (let ((default-directory --ptemplate-test-temp-dir--))
+          (funcall f))
+      ;; This should be safe, as --ptemplate-test-temp-dir-- wouldn't ever be
+      ;; modified; however, `delete-directory' recursively is still scary.
+      (delete-directory --ptemplate-test-temp-dir-- t))))
+
 (defmacro ptemplate-test--with-temp-dir (&rest body)
-  "Execute BODY in a temporary directory.
-Create a temporary directory and evaluate BODY in it. The
-temporary directory is bound to `default-directory' and safely
-deleted after executing BODY \(recursively\), even if it throws
-an error. Return the result of the last BODY form."
+  "`ptemplate-test--in-temp-dir' as a macro.
+Return the result of the last BODY form."
   (declare (indent 0) (debug t))
-  `(let ((--ptemplate-test-temp-dir-- (make-temp-file "ptemplate-test" t)))
-     (unwind-protect
-         (let ((default-directory --ptemplate-test-temp-dir--)) ,@body)
-       ;; This should be safe, as --ptemplate-test-temp-dir-- wouldn't ever be
-       ;; modified; however, `delete-directory' recursively is still scary.
-       (delete-directory --ptemplate-test-temp-dir-- t))))
+  `(ptemplate-test--in-temp-dir (lambda () ,@body)))
 
 (defun ptemplate-test--cmpdir (a b)
   "Check if directories A and B are recursively equal.
