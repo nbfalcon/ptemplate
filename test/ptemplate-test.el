@@ -105,9 +105,7 @@ Currently, only `lwarn' is handled."
   "Verify that the expansion-test templates expand correctly.
 See test/rsc/expansion-tests/README.md for details."
   (let* ((test-templates
-          (cl-delete-if-not
-           #'file-directory-p
-           (ptemplate--list-dir-dirs (ptemplate-test--rsc "expansion-tests"))))
+          (ptemplate--list-dir-dirs (ptemplate-test--rsc "expansion-tests")))
          (failed-templates
           (ptemplate-test--with-fatal-warnings
            (cl-delete-if #'ptemplate-test--expansion test-templates)))
