@@ -243,17 +243,6 @@ created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
     (ptemplate--snippet-chain->continue)))
 
 ;;; common utility functions
-(defun ptemplate--unix-to-native-path (path)
-  "Replace slashes in PATH with the platform's directory separator.
-PATH is a file path, as a string, assumed to use slashes as
-directory separators. On platform's where that character is
-different (MS DOS, Windows), replace such slashes with the
-platform's equivalent."
-  (declare (side-effect-free t))
-  (if (memq system-type '(msdos windows-nt))
-      (replace-regexp-in-string "/" "\\" path nil t)
-    path))
-
 (defun ptemplate--maybe-dirify (path)
   "Make PATH a directory path if it is one.
 If path is a directory (as determined by `file-directory-p'), run
@@ -268,9 +257,8 @@ Unlike `directory-files-recursively', directories end in the
 platform's directory separator. \".\" and \"..\" are not
 included."
   (cl-loop for file in (directory-files-recursively path "" t) collect
-           (ptemplate--unix-to-native-path
-            (concat "./" (file-relative-name
-                          (ptemplate--maybe-dirify file) path)))))
+           (concat "./" (file-relative-name
+                         (ptemplate--maybe-dirify file) path))))
 
 (defun ptemplate--list-template-dir-files (path)
   "`ptemplate--list-template-files', but include .ptemplate.el.
@@ -297,8 +285,8 @@ special files (e.g. .nocopy, .yas). Directories are included.
 .ptemplate.el and .ptemplate.elc are removed."
   (cl-delete-if
    (lambda (mapping)
-     (string-match-p (ptemplate--unix-to-native-path "./.ptemplate.elc?\\'")
-                     (ptemplate--file-mapping-src mapping)))
+     (member (ptemplate--file-mapping-src mapping)
+             '("./.ptemplate.el" "./.ptemplate.elc")))
    (ptemplate--list-template-dir-files path)))
 
 (defun ptemplate--list-dir (dir)
@@ -818,9 +806,8 @@ listings.
 Note that . or .. path components are not handled at all, meaning
 that \"(string-match-p (ptemplate--make-basename-regex
 \"tmp/foo\") \"tmp/foo/../foo\"\)\" will yield nil."
-  (declare (side-effect-free t))
-  (concat (ptemplate--unix-to-native-path "\\(?:/\\|\\`\\)")
-          (ptemplate--unix-to-native-path file) "\\'"))
+  (declare (side-effect-free t) (pure t))
+  (concat (format "\\(?:/\\|\\`\\)%s\\'" file)))
 
 (defun ptemplate--make-path-regex (path)
   "Make a regex matching PATH if some PATH is below it.
@@ -828,16 +815,15 @@ The resulting regex shall match if some other path starts with
 PATH. Slashes should be used to separate directories in PATH, the
 necessary conversion being done for windows and MS DOS. The same
 caveats apply as for `ptemplate--make-basename-regex'."
-  (declare (side-effect-free t))
-  (concat "\\`" (regexp-quote (ptemplate--unix-to-native-path path))
-          (ptemplate--unix-to-native-path "\\(?:/\\|\\'\\)")))
+  (declare (side-effect-free t) (pure t))
+  (format "\\`%s\\(?:/\\|\\'\\)" path))
 
 (defun ptemplate--simplify-user-path (path)
   "Make PATH a template-relative path without any prefix.
 PATH's slashes are converted to the native directory separator
 and prefixes like ./ and / are removed. Note that directory
 separator conversion is not performed."
-  (declare (side-effect-free t))
+  (declare (side-effect-free t) (pure t))
   (let* ((paths (split-string path "/"))
          (paths (cl-delete-if #'string-empty-p paths))
          (paths (cl-delete "." paths :test #'string=)))
@@ -848,9 +834,8 @@ separator conversion is not performed."
 PATH shall be a user-supplied template source/target relative
 PATH, which will be normalized and whose directory separators
 will be converted to the platform's native ones."
-  (declare (side-effect-free t))
-  (ptemplate--unix-to-native-path
-   (concat "./" (ptemplate--simplify-user-path path))))
+  (declare (side-effect-free t) (pure t))
+  (concat "./" (ptemplate--simplify-user-path path)))
 
 (defun ptemplate--normalize-user-path-file (path)
   "Like `ptemplate--normalize-user-path', but yield a file.
@@ -870,7 +855,7 @@ directory path."
 (defun ptemplate--make-ignore-regex (regexes)
   "Make a delete regex for `ptemplate-ignore'.
 REGEXES is a list of strings as described there."
-  (declare (side-effect-free t))
+  (declare (side-effect-free t) (pure t))
   (string-join
    (cl-loop for regex in regexes collect
             (if (string-prefix-p "/" regex)
@@ -969,8 +954,7 @@ files haven't been remapped will still be created.
 
 See also `ptemplate-remap-rec'."
   (ptemplate--prune-template-files
-   (ptemplate--unix-to-native-path
-    (format "\\`%s/?\\'" (ptemplate--normalize-user-path src))))
+   (format "\\`%s/?\\'" (ptemplate--normalize-user-path src)))
   (ptemplate-map src target))
 
 (defun ptemplate-remap-rec (src target)
@@ -1290,9 +1274,7 @@ internal details, which are subject to change at any time."
           (:inherit (push arg inherited-templates))
           (:inherit-rel (push `(ptemplate-source ,arg) inherited-templates))
           (:subdir (let ((simplified-path (ptemplate--simplify-user-path arg)))
-                     (push (concat (ptemplate--unix-to-native-path "/")
-                                   simplified-path)
-                           ignore-expressions)
+                     (push (concat "/" simplified-path) ignore-expressions)
                      (push simplified-path include-dirs)))
           (:remap (push `(ptemplate-remap ,(car arg) ,(cadr arg)) remap-forms))
           (:remap-rec (push `(ptemplate-remap-rec ,(car arg) ,(cadr arg))
