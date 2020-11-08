@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.2.3
+;; Version: 2.3.0
 
 ;;; Commentary:
 
@@ -60,9 +60,9 @@
                (:constructor ptemplate--snippet-chain-mapping<-new)
                (:copier ptemplate--snippet-chain<-copy))
   "Maps a SRC to snippet expansion TARGET."
-  (src
+  (snippet
    nil :documentation
-   "Path to the snippet being expanded.")
+   "The content of the snippet, as a string.")
   (target
    nil :documentation
    "Where SRC is expanded to.")
@@ -175,7 +175,7 @@ Variables are set buffer-locally."
      ((bufferp next) (switch-to-buffer next))
      ((ptemplate--snippet-chain-mapping-p next)
       (let ((target (ptemplate--snippet-chain-mapping-target next))
-            (source-file (ptemplate--snippet-chain-mapping-src next))
+            (snippet (ptemplate--snippet-chain-mapping-snippet next))
             (setup-hook (ptemplate--snippet-chain-mapping-setup-hook next)))
         (require 'yasnippet)
         (with-current-buffer (find-file-noselect target)
@@ -189,7 +189,7 @@ Variables are set buffer-locally."
 
           ;; "yasnippet needs a properly set-up `yas-minor-mode'"
           (yas-minor-mode 1)
-          (yas-expand-snippet (ptemplate--read-file source-file) nil nil)
+          (yas-expand-snippet snippet nil nil)
 
           (ptemplate-snippet-chain-mode 1)
           (pop-to-buffer-same-window (current-buffer))))))))
@@ -316,7 +316,8 @@ The underlying data-structure of
    "Prepended to SRC to yield the actual location.")
   (src
    nil :documentation
-   "See PREFIX.")
+   "See PREFIX.
+This may be nil, in which case the mapping is to be ignored.")
   (target
    nil :documentation
    "Where the SRC is mapped to.
@@ -324,11 +325,19 @@ Relative to the expansion target.")
   (type
    'copy :documentation
    "How this mapping is to be executed.
-Can be `:copy', in which case it is copied using copy-file or a
-directory made for it, `:yas', in which case it is expanded
-interactively in a snippet-chain and `:autoyas', in which case it
-is expanded headlessly. Mappings from nil are handled by
-`:copy'.")
+Possible values are:
+- `:copy': copy the content to the target
+- `:yas': expand the content using the snippet-chain
+- `:autoyas': expand a snippet in the background
+- `:nil': ignore this mapping
+- `:mkdir': create directory TARGET")
+  (content
+   nil :documentation
+   "An optional string that should be the source content.
+If this is specified, SRC is not be read and this string is used
+as the buffer content for `:copy', `:yas', .... Useful if mapping
+content needs to be computed dynamically. SRC will still
+participate in selection (`ptemplate-ignore', ...) though.")
   (snippet-setup-hook
    nil :documentation
    "List of functions run to set up this snippet.
@@ -364,6 +373,8 @@ See `ptemplate--file-mapping-type' for details."
       (pcase (file-name-extension src)
         ("yas" :yas)
         ("autoyas" :autoyas)
+        ;; `:nil' is never an implicit mapping, because then that mapping might
+        ;; as well be ommitted in the first place.
         (_ :copy))
     ;; nil maps
     :copy))
@@ -497,10 +508,10 @@ For use with `ptemplate--remove-duplicate-files'."
    earlier current))
 
 (defun ptemplate--autoyas-expand
-    (src target &optional expand-env snippet-setup-hook)
-  "Expand yasnippet in file SRC to file TARGET.
-Expansion is done \"headless\", that is without showing buffers.
-EXPAND-ENV is an environment alist like in
+    (content target &optional expand-env snippet-setup-hook)
+  "Expand yasnippet string CONTENT to file TARGET.
+Expansion is done \"headlessly\", that is without showing
+buffers. EXPAND-ENV is an environment alist like in
 `ptemplate--snippet-chain-env'. Execute each function in
 SNIPPET-SETUP-HOOK before expanding the snippet."
   (with-temp-file target
@@ -510,7 +521,12 @@ SNIPPET-SETUP-HOOK before expanding the snippet."
     (mapc #'funcall snippet-setup-hook)
 
     (yas-minor-mode 1)
-    (yas-expand-snippet (ptemplate--read-file src))))
+    (yas-expand-snippet content)))
+
+(defun ptemplate--write-file (s file)
+  "Write string S to FILE.
+Throw an error if FILE already exists."
+  (write-region s nil file nil nil nil t))
 
 (defun ptemplate--copy-context->execute (context source target)
   "Copy all files in CONTEXT's file-map.
@@ -550,25 +566,28 @@ manually copies files around in its .ptemplate.el :init block.
 
            for type = (ptemplate--file-mapping-type mapping)
 
-;;; `ptemplate--copy-context->execute': support nil maps
-           if src do
-           (make-directory
-            ;; directories need to be created "as-is" (they may potentially be
-            ;; empty); files must not be created as directories however but
-            ;; their containing directories instead. This avoids prompts asking
-            ;; the user if they really want to save a file even though its
-            ;; containing directory was not made yet.
-            (if src-dir? realtarget (file-name-directory realtarget))
-            t)
+           for content = (ptemplate--file-mapping-content mapping)
 
+           if (eq type :mkdir) do (make-directory target t)
+           else if (or src content) do
+           (make-directory
+            ;; directories need to be created "as-is" (they may potentially
+            ;; be empty); files must not be created as directories however
+            ;; but their containing directories instead. This avoids prompts
+            ;; asking the user if they really want to save a file even
+            ;; though its containing directory was not made yet.
+            (if src-dir? realtarget (file-name-directory realtarget)) t)
            and unless src-dir? do
            (pcase type
-             (:copy (copy-file realsrc realtarget))
-             (:autoyas (ptemplate--autoyas-expand realsrc realtarget snippet-env
-                                                  snippet-setup-hook))
+             (:copy
+              (if content (ptemplate--write-file content realtarget)
+                (copy-file realsrc realtarget)))
+             (:autoyas (ptemplate--autoyas-expand
+                        (or content (ptemplate--read-file realsrc))
+                        realtarget snippet-env snippet-setup-hook))
              (:yas (push (ptemplate--snippet-chain-mapping<-new
-                          :src realsrc :target realtarget
-                          :setup-hook snippet-setup-hook)
+                          :snippet (or content (ptemplate--read-file realsrc))
+                          :target realtarget :setup-hook snippet-setup-hook)
                          yasnippets))
              (_ (lwarn '(ptemplate ptemplate-expand-template) :error
                        "In mapping %S: unknown type %S" mapping type)))
@@ -913,7 +932,7 @@ See `ptemplate--merge-filemaps' for details."
         (ptemplate--merge-filemaps file-maps)))
 
 ;;; .ptemplate.el API
-(defun ptemplate-map (src target &optional type)
+(defun ptemplate-map (src target &optional type content)
   "Map SRC to TARGET for expansion.
 SRC is a path relative to the ptemplate being expanded and TARGET
 is a path relative to the expansion target.
@@ -924,12 +943,17 @@ templates.
 
 TYPE specifies the type of the mapping (deduced automatically
 otherwise). See `ptemplate--file-mapping-type' for the
-possibilities."
+possibilities.
+
+CONTENT specifies a string to be used as the content of the
+mapping, e.g. a yasnippet string, or the desired content of the
+target for `:copy'."
   (ptemplate--appendf
    (ptemplate--file-mapping<-new
     :src (and src (ptemplate--normalize-user-path src))
     :target (ptemplate--normalize-user-path target)
-    :type (or type (ptemplate--mapping-auto-type src)))
+    :type (or type (ptemplate--mapping-auto-type src))
+    :content content)
    (ptemplate--copy-context-file-map ptemplate--cur-copy-context)))
 
 (defun ptemplate-automap (src &optional type)
