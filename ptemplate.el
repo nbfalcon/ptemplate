@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.3.0
+;; Version: 2.3.1
 
 ;;; Commentary:
 
@@ -589,6 +589,7 @@ manually copies files around in its .ptemplate.el :init block.
                           :snippet (or content (ptemplate--read-file realsrc))
                           :target realtarget :setup-hook snippet-setup-hook)
                          yasnippets))
+             (:nil)
              (_ (lwarn '(ptemplate ptemplate-expand-template) :error
                        "In mapping %S: unknown type %S" mapping type)))
 
