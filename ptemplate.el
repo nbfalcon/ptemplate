@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.3.1
+;; Version: 2.4.1
 
 ;;; Commentary:
 
@@ -471,41 +471,21 @@ trailing slash."
       (load-file dotptemplate))
     ptemplate--cur-copy-context))
 
-(defun ptemplate--remove-duplicate-files (files dup-cb)
-  "Find and remove duplicates in FILES.
-FILES shall be a list of template file mappings (see
-`ptemplate--copy-context-file-map'\). If a duplicate is
-encountered, call DUP-CB using `funcall' and pass to it `car' of
-the mapping that came earlier and the (SRC . TARGET\) cons that
-was encountered later.
+(defun ptemplate--check-duplicate-mappings (mappings)
+  "Check for and duplicates in MAPPINGS.
+MAPPINGS shall be a list of template file mappings (see
+`ptemplate--copy-context-file-map').
 
-Return a new list of mappings with all duplicates removed
-\(non-destructively\).
-
-This function uses a hashmap and is as such efficient for large
-lists, but doesn't use constant memory."
+If a duplicate is encountered, an `error' is thrown."
   ;; hashmap of all target files mapped to `t'
-  (cl-loop with known-targets = (make-hash-table :test 'equal)
-           for file in files
-           for target = (ptemplate--file-mapping-target file)
-
-           for prev-source = (gethash target known-targets)
-           if prev-source
-           ;; already encountered? call DUP-CB
-           do (funcall dup-cb prev-source file)
-           ;; remember it as encountered and collect it, since it was first
-           else do (puthash target file known-targets) and collect file))
-
-(defun ptemplate--warn-dup-mapping (earlier current)
-  "Warn that a file was already mapped earlier.
-EARLIER should be the mapping found earlier, while CURRENT is the
-one that caused the warning.
-
-For use with `ptemplate--remove-duplicate-files'."
-  (lwarn
-   '(ptemplate ptemplate-expand-template) :warning
-   "duplicate mappings encountered: \"%s\" came before \"%s\""
-   earlier current))
+  (let ((known-targets (make-hash-table :test 'equal)))
+    (dolist (mapping mappings)
+      (let* ((target (ptemplate--file-mapping-target mapping))
+             (prev-source (gethash target known-targets)))
+        (when prev-source
+          (error "Duplicate mapping encountered: %S came before %S"
+                 prev-source mapping))
+        (puthash target mapping known-targets)))))
 
 (defun ptemplate--autoyas-expand
     (content target &optional expand-env snippet-setup-hook)
@@ -545,9 +525,9 @@ manually copies files around in its .ptemplate.el :init block.
                                 (ptemplate-target-directory . ,target)
                                 ,@(ptemplate--copy-context-snippet-env context))
            with yasnippets = nil
-           with dup-file-map = (ptemplate--copy-context-file-map context)
-           with mappings = (ptemplate--remove-duplicate-files
-                            dup-file-map #'ptemplate--warn-dup-mapping)
+
+           with mappings = (ptemplate--copy-context-file-map context)
+           initially (ptemplate--check-duplicate-mappings mappings)
            for mapping in mappings
 
            for src = (ptemplate--file-mapping-src mapping)
@@ -589,9 +569,8 @@ manually copies files around in its .ptemplate.el :init block.
                           :snippet (or content (ptemplate--read-file realsrc))
                           :target realtarget :setup-hook snippet-setup-hook)
                          yasnippets))
-             (:nil)
-             (_ (lwarn '(ptemplate ptemplate-expand-template) :error
-                       "In mapping %S: unknown type %S" mapping type)))
+             (:nil)                     ; explicitly ignored
+             (_ (error "Unknown type %S in mapping %S" type mapping)))
 
            finally do
            (run-hooks 'ptemplate--before-snippet-hook)
@@ -1123,13 +1102,11 @@ called and can configure them further. All variables defined in
            for mapping in (ptemplate--copy-context-file-map
                            ptemplate--cur-copy-context)
            for target = (ptemplate--file-mapping-target mapping)
-           if (member target snippets)
-           if (ptemplate--file-mapping->snippet-p mapping) do
+           if (member target snippets) do
+           (unless (ptemplate--file-mapping->snippet-p mapping)
+             (error "Trying to configure non-snippet mapping %S" mapping))
            (ptemplate--appendf
-            callback (ptemplate--file-mapping-snippet-setup-hook mapping))
-           else do
-           (lwarn '(ptemplate-snippet-setup) :error
-                  "trying to configure non-snippet mapping %S" mapping)))
+            callback (ptemplate--file-mapping-snippet-setup-hook mapping))))
 
 (defmacro ptemplate-snippet-setup! (snippets &rest body)
   "Like `ptemplate--snippet-setup', but as a macro.

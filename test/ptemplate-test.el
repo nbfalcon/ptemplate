@@ -85,30 +85,13 @@ equivalent to result/, return nil and t otherwise."
       (ptemplate-expand-template template expand-dir)
       (ptemplate-test--cmpdir expand-dir result))))
 
-(defun ptemplate-test--lwarn-fail (type level message &rest args)
-  "An `lwarn' replacement that fails the current `ert-deftest'.
-TYPE, LEVEL, MESSAGE and ARGS are the same as in `lwarn', except
-that they are used to generate a failure message instead."
-  (ert-fail (format "`lwarn' called: %S %s: %s" type level
-                    (apply #'format message args))))
-
-(defmacro ptemplate-test--with-fatal-warnings (&rest body)
-  "Execute BODY and fail the test if it throws warnings.
-Return the result of the last BODY expression.
-
-Currently, only `lwarn' is handled."
-  (declare (debug t))
-  `(cl-letf (((symbol-function #'lwarn) #'ptemplate-test--lwarn-fail))
-     ,@body))
-
 (ert-deftest ptemplate-expansion ()
   "Verify that the expansion-test templates expand correctly.
 See test/rsc/expansion-tests/README.md for details."
   (let* ((test-templates
           (ptemplate--list-dir-dirs (ptemplate-test--rsc "expansion-tests")))
          (failed-templates
-          (ptemplate-test--with-fatal-warnings
-           (cl-delete-if #'ptemplate-test--expansion test-templates)))
+          (cl-delete-if #'ptemplate-test--expansion test-templates))
          (failed-expansions (mapcar #'file-name-nondirectory failed-templates)))
     (should (eq failed-expansions nil))))
 
