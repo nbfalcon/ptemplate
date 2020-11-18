@@ -39,6 +39,7 @@
 (require 'subr-x)                       ; `string-join'
 
 ;;; global `declare-function'
+
 (declare-function yas-minor-mode "yasnippet" (&optional arg))
 (declare-function yas-expand-snippet "yasnippet" (s &optional start end env))
 
@@ -243,6 +244,7 @@ created. Corresponds to `ptemplate--snippet-chain-newbuf-hook'"
     (ptemplate--snippet-chain->continue)))
 
 ;;; common utility functions
+
 (defun ptemplate--maybe-dirify (path)
   "Make PATH a directory path if it is one.
 If path is a directory (as determined by `file-directory-p'), run
@@ -305,6 +307,7 @@ does that already."
   `(cl-callf2 nconc ,newels ,place))
 
 ;;; copy context
+
 (cl-defstruct (ptemplate--file-mapping
                (:constructor ptemplate--file-mapping<-new)
                (:copier ptemplate--file-mapping<-copy))
@@ -580,6 +583,7 @@ manually copies files around in its .ptemplate.el :init block.
             (ptemplate--copy-context-snippet-conf-hook context))))
 
 ;;; Public API
+
 (defun ptemplate--list-dir-dirs (dir)
   "Like `ptemplate-list-dir', but only include directories.
 DIR specifies the path to the directory to list."
@@ -792,6 +796,7 @@ If even that is nil, use `default-directory'."
   (ptemplate-expand-template source target))
 
 ;;; auxiliary functions for the .ptemplate.el API
+
 (defun ptemplate--make-basename-regex (file)
   "Return a regex matching FILE as a basename.
 FILE shall be a regular expressions matching a path, separated
@@ -912,6 +917,7 @@ See `ptemplate--merge-filemaps' for details."
         (ptemplate--merge-filemaps file-maps)))
 
 ;;; .ptemplate.el API
+
 (defun ptemplate-map (src target &optional type content)
   "Map SRC to TARGET for expansion.
 SRC is a path relative to the ptemplate being expanded and TARGET
@@ -1092,6 +1098,7 @@ Return the result of the last BODY form."
   `(ptemplate-file-sandbox (lambda () ,@body)))
 
 ;;; snippet configuration
+
 (defun ptemplate-snippet-setup (snippets callback)
   "Run CALLBACK to configure SNIPPETS.
 SNIPPETS is a list of target-relative file snippet targets
