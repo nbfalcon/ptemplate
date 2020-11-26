@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.4.1
+;; Version: 2.5.0
 
 ;;; Commentary:
 
@@ -713,22 +713,31 @@ template, the function may return nil."
           (function :tag "Custom function")))
 
 (defcustom ptemplate-workspace-alist '()
-  "Alist mapping between template types and workspace folders."
+  "Alist mapping between template types and workspace folders.
+The associated workspaces have form of
+`ptemplate-default-workspace', which see."
   :group 'ptemplate
   :type '(alist :key-type (string :tag "Type")
-                :value-type (string :tag "Workspace")))
+                :value-type (choice (file :tag "Workspace")
+                                    (file :tag "Workspaces"))))
 
 (defcustom ptemplate-default-workspace nil
   "Default workspace for `ptemplate-workspace-alist'.
 If looking up a template's type in `ptemplate-workspace-alist'
 fails, because there is no corresponding entry, use this as a
-workspace instead."
+workspace instead.
+
+This variable may either be a string, specifying the path to the
+workspace, or a list of strings. If it is of the latter form, a
+prompt will be displayed asking a workspace to be selected before
+prompting for a target in `ptemplate-new-project'."
   :group 'ptemplate
-  :type 'string)
+  :type '(choice (file :tag "Workspace")
+                 (file :tag "Workspaces")))
 
 (defun ptemplate--read-target (template)
   "Prompt the user to supply a project directory for TEMPLATE.
-The initial directory is looked up based on
+The DIR for `read-file-name' is looked up based on
 `ptemplate-workspace-alist'. TEMPLATE's type is deduced from its
 path, which means that it should have been obtained using
 `ptemplate-list-templates', or at least be in a template
@@ -736,8 +745,11 @@ directory."
   (let* ((base (directory-file-name template))
          (type (file-name-nondirectory (directory-file-name
                                         (file-name-directory base))))
-         (workspace (alist-get type ptemplate-workspace-alist
-                               ptemplate-default-workspace nil #'string=)))
+         (workspaces (alist-get type ptemplate-workspace-alist
+                                ptemplate-default-workspace nil #'string=))
+         (workspace (if (listp workspaces)
+                        (completing-read "Select workspace: " workspaces nil t)
+                      workspaces)))
     (read-file-name "Create project: " workspace workspace)))
 
 (defun ptemplate--read-template (templates caller)
