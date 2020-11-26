@@ -32,27 +32,22 @@ current buffer-local values (nil, unless in a snippet chain buffer).
 * Copy context
 To support template inheritance elegantly, the state of some template needs to
 be contained and merged. This is done using a =copy context=, which is a
-structure containing all state needed to expand a template to some destination
-(note that this doesn't mean eval'ing a template once is sufficient: the :init
-block is not contained). Each field in that structure corresponds to some global
-ptemplate variable, defined in the section above. The copy context is generated,
-with additional helper functions, using the macro
-=ptemplate--define-copy-context=.
-** =ptemplate--define-copy-context=
-This macro is responsible for generating most of the copy-context related code,
-for the sake of easier extensibility. Extending it is rather straight-forward:
-add the name of whatever you are trying to generate to the let-form, and add
-another expression at the bottom.
-* ptemplate!
+structure containing all state needed to expand a template to some destination.
+However, this isn't enough to mean that a template could be loaded once and
+expanded to multiple targets, because the ~:init~ block is not stored, but
+executed directly instead.
+
+In =ptemplate=, that context is contained within the ~ptemplate--copy-context~
+structure, the global instance of which is in ~ptemplate--cur-copy-context~.
+
+To allow multiple templates to be expanded at once, and to eliminate global
+state, ~ptemplate--cur-copy-context~ is always ~let~-bound before loading a
+template in ~ptemplate--eval-template~.
+* ~ptemplate!~
 This macro is mainly useful in .ptemplate.el files. It transforms various :<foo>
 blocks into code that modifies the global template variables, as defined above,
-directly. Most keywords can be implemented using the existing variables and
-hooks, but sometimes new ones need to be added. This can be done as follows:
-
-1. Add them to the “`ptemplate!` variables” section
-2. Add a mapping for them in the copy context (see above, and the already
-   defined ones)
-3. (Make use of it in =ptemplate!= or add a utility function that uses it)
+directly. Most keywords can be implemented using the existing =copy context=
+fields and hooks, but sometimes new ones need to be added. See above for that.
 
 The rest is taken care of by the =ptemplate--define-copy-context= macro.
 * Additional notes
