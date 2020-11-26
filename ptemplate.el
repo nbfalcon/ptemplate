@@ -726,7 +726,7 @@ workspace instead."
   :group 'ptemplate
   :type 'string)
 
-(defun ptemplate--prompt-target (template)
+(defun ptemplate--read-target (template)
   "Prompt the user to supply a project directory for TEMPLATE.
 The initial directory is looked up based on
 `ptemplate-workspace-alist'. TEMPLATE's type is deduced from its
@@ -740,7 +740,7 @@ directory."
                                ptemplate-default-workspace nil #'string=)))
     (read-file-name "Create project: " workspace workspace)))
 
-(defun ptemplate--prompt-template (templates caller)
+(defun ptemplate--read-template (templates caller)
   "Prompt the user for a template.
 Prompt with `ptemplate-template-prompt-function' and pass
 TEMPLATES to it.
@@ -768,7 +768,7 @@ If called interactively, SOURCE is prompted using
 `read-file-name'"
   (interactive
    (list
-    (ptemplate--prompt-template
+    (ptemplate--read-template
      (ptemplate-list-directory-templates) #'ptemplate-expand-template)
     (read-file-name "Expand to: ")))
   (let ((context (ptemplate--eval-template source target)))
@@ -787,10 +787,10 @@ interactively, TARGET is prompted using `read-file-name', with
 the initial directory looked up in `ptemplate-workspace-alist'
 using SOURCE's type, defaulting to `ptemplate-default-workspace'.
 If even that is nil, use `default-directory'."
-  (interactive (let ((template (ptemplate--prompt-template
+  (interactive (let ((template (ptemplate--read-template
                                 (ptemplate-list-project-templates)
                                 #'ptemplate-new-project)))
-                 (list template (ptemplate--prompt-target template))))
+                 (list template (ptemplate--read-target template))))
   (when (file-exists-p target)
     (user-error "Directory %s already exists" target))
   (ptemplate-expand-template source target))
