@@ -18,7 +18,7 @@
 ;; Author: Nikita Bloshchanevich <nikblos@outlook.com>
 ;; URL: https://github.com/nbfalcon/ptemplate
 ;; Package-Requires: ((emacs "25.1") (yasnippet "0.13.0"))
-;; Version: 2.5.0
+;; Version: 2.5.1
 
 ;;; Commentary:
 
@@ -708,8 +708,8 @@ template, the function may return nil."
   :group 'ptemplate
   :type '(radio
           (const :tag "completing-read (ivy, helm, ...)"
-                 #'ptemplate-prompt-template-completing-read)
-          (const :tag "helm" #'ptemplate-prompt-template-helm)
+                 ptemplate-prompt-template-completing-read)
+          (const :tag "helm" ptemplate-prompt-template-helm)
           (function :tag "Custom function")))
 
 (defcustom ptemplate-workspace-alist '()
