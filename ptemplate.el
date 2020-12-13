@@ -702,9 +702,9 @@ This function's API is not stable, and it for use only as a
   #'ptemplate-prompt-template-completing-read
   "Prompting method to use to read a template from the user.
 The function shall take a single argument, the list of templates
-\(as returned by `ptemplates-list-templates'\) and return the
-path to the template as a string. If the user fails to select a
-template, the function may return nil."
+\(as returned by `ptemplates-list-templates'\) and shall return
+the path to the template as a string. If the user fails to select
+a template, the function may return nil."
   :group 'ptemplate
   :type '(radio
           (const :tag "completing-read (ivy, helm, ...)"
