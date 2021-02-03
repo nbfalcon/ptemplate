@@ -1044,7 +1044,9 @@ which refer to their corresponding sources (see
 `ptemplate--file-map->absoluteify'\).
 
 See also `ptemplate-inherit' and `ptemplate-inherit-overriding'."
-  (let* ((inherit-contexts (mapcar #'ptemplate--eval-template srcs))
+  (let* ((inherit-contexts
+          (cl-loop for src in srcs collect
+                   (ptemplate--eval-template src ptemplate-target-directory)))
          (merged-context
           (ptemplate--copy-context<-merge-hooks
            (append inherit-contexts (list ptemplate--cur-copy-context)))))
