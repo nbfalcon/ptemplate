@@ -1211,6 +1211,9 @@ are:
              initialize the variable. Note that the value of
              snippet-let blocks can be changed in :init.
 
+:let like :snippet-let, but variables are not added to to snippet
+     environment.
+
 :ignore Syntax sugar for `ptemplate-ignore'. Files are pruned
         before :init.
 
@@ -1288,6 +1291,7 @@ internal details, which are subject to change at any time."
           (:snippet-let
            (push (if (consp arg) (car arg) arg) snippet-env)
            (push arg around-let))
+          (:let (push arg around-let))
           (:ignore (push arg ignore-expressions))
           (:automap (push `(ptemplate-automap ,arg) automap-forms))
           (:automap-typed

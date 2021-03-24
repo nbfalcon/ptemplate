@@ -105,8 +105,9 @@ should make use of the `ptemplate!` macro. It takes any number of keyword blocks
 - :after-copy FORMs to run after all files have been copied
 - :finalize FORMs to run after expansion finishes.
 - :snippet-env Variables to make available to yasnippets.
-- :snippet-let Variables to let*-bind around the `ptemplate!` block + to add in
+- :snippet-let Variables to `let*`-bind around the `ptemplate!` block + to add in
   yasnippets.
+- :let Variables to `let*'-bind around the `ptemplate!` block
 - :ignore Regular expressions of filenames to ignore or paths to ignore.
 - :automap Syntax sugar for `ptemplate-automap`.
 - :automap-typed Like :automap, but also specify the mapping type.
